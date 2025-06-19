@@ -23,9 +23,11 @@ jobs:
       with:
         project_id: solar-idea-463423-h8
 
-    - name: Configure Docker for Artifact Registry
+    - name: Enable required APIs
       run: |
-        gcloud auth configure-docker asia-east1-docker.pkg.dev
+        gcloud services enable cloudbuild.googleapis.com
+        gcloud services enable run.googleapis.com
+        gcloud services enable artifactregistry.googleapis.com
 
     - name: Create Artifact Registry repository (if not exists)
       run: |
@@ -34,36 +36,15 @@ jobs:
           --location=asia-east1 \
           --description="WeeklyReporter Docker images" || echo "Repository already exists"
 
-    - name: Build Docker Image
+    - name: Deploy using Cloud Build
       run: |
-        IMAGE="asia-east1-docker.pkg.dev/solar-idea-463423-h8/weeklyreporter/app:latest"
-        docker build -f Dockerfile.cloudrun -t $IMAGE .
-        echo "IMAGE=$IMAGE" >> $GITHUB_ENV
-
-    - name: Push Docker Image to Artifact Registry
-      run: |
-        docker push $IMAGE
-
-    - name: Deploy to Cloud Run
-      run: |
-        gcloud run deploy weeklyreporter \
-          --image $IMAGE \
-          --platform managed \
-          --region asia-east1 \
-          --allow-unauthenticated \
-          --port 8080 \
-          --memory 1Gi \
-          --cpu 1 \
-          --timeout 3600 \
-          --max-instances 1 \
-          --min-instances 0 \
-          --concurrency 1 \
-          --execution-environment gen2 \
-          --set-env-vars TZ=Asia/Shanghai
+        gcloud builds submit --config cloudbuild.yaml .
 
     - name: Get Service URL
       run: |
-        SERVICE_URL=$(gcloud run services describe weeklyreporter --platform managed --region asia-east1 --format 'value(status.url)')
-        echo "🚀 Service deployed successfully!"
+        SERVICE_URL=$(gcloud run services describe weeklyreporter --platform managed --region asia-east1 --format 'value(status.url)' || echo "Service not found")
+        echo "🚀 Deployment completed!"
         echo "🔗 Service URL: $SERVICE_URL"
-        echo "📝 健康检查: curl $SERVICE_URL/health" 
+        if [ "$SERVICE_URL" != "Service not found" ]; then
+          echo "📝 健康检查: curl $SERVICE_URL/health"
+        fi 

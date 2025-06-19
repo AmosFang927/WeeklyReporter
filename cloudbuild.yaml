@@ -1,0 +1,43 @@
+steps:
+  # 构建 Docker 镜像
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '-f', 'Dockerfile.cloudrun',
+      '-t', 'asia-east1-docker.pkg.dev/solar-idea-463423-h8/weeklyreporter/app:latest',
+      '.'
+    ]
+
+  # 推送镜像到 Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'push',
+      'asia-east1-docker.pkg.dev/solar-idea-463423-h8/weeklyreporter/app:latest'
+    ]
+
+  # 部署到 Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args: [
+      'run', 'deploy', 'weeklyreporter',
+      '--image', 'asia-east1-docker.pkg.dev/solar-idea-463423-h8/weeklyreporter/app:latest',
+      '--platform', 'managed',
+      '--region', 'asia-east1',
+      '--allow-unauthenticated',
+      '--port', '8080',
+      '--memory', '1Gi',
+      '--cpu', '1',
+      '--timeout', '3600',
+      '--max-instances', '1',
+      '--set-env-vars', 'TZ=Asia/Shanghai',
+      '--quiet'
+    ]
+
+# 镜像配置
+images:
+  - 'asia-east1-docker.pkg.dev/solar-idea-463423-h8/weeklyreporter/app:latest'
+
+# 选项
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8' 
