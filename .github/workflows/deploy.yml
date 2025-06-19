@@ -1,4 +1,4 @@
-name: Deploy WeeklyReporter to GCP Cloud Run
+name: Deploy WeeklyReporter to GCP Cloud Run (Simplified)
 
 on:
   push:
@@ -9,6 +9,7 @@ env:
   PROJECT_ID: solar-idea-463423-h8
   SERVICE_ACCOUNT: weeklyreporter@solar-idea-463423-h8.iam.gserviceaccount.com
   REGION: asia-east1
+  IMAGE: asia-east1-docker.pkg.dev/solar-idea-463423-h8/weeklyreporter/app:latest
 
 jobs:
   build-deploy:
@@ -29,29 +30,79 @@ jobs:
       with:
         project_id: ${{ env.PROJECT_ID }}
 
-    - name: Verify Service Account
+    - name: Verify Configuration
       run: |
-        echo "🔍 当前使用的 Service Account:"
+        echo "🔍 验证当前配置:"
+        echo "项目: ${{ env.PROJECT_ID }}"
+        echo "Service Account: ${{ env.SERVICE_ACCOUNT }}"
+        echo "区域: ${{ env.REGION }}"
+        echo "镜像: ${{ env.IMAGE }}"
+        echo ""
+        echo "🔍 当前认证状态:"
         gcloud auth list
-        echo "🔍 当前项目: ${{ env.PROJECT_ID }}"
+        echo ""
+        echo "🔍 当前项目:"
         gcloud config get-value project
 
-    - name: Create Artifact Registry repository (if not exists)
+    - name: Configure Docker for Artifact Registry
       run: |
+        echo "🔧 配置 Docker 认证..."
+        gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+    - name: Create Artifact Registry repository (if needed)
+      run: |
+        echo "📦 创建 Artifact Registry 仓库..."
         gcloud artifacts repositories create weeklyreporter \
           --repository-format=docker \
           --location=${{ env.REGION }} \
-          --description="WeeklyReporter Docker images" || echo "Repository already exists"
+          --description="WeeklyReporter Docker images" || echo "✅ 仓库已存在"
 
-    - name: Deploy using Cloud Build
+    - name: Build Docker Image
       run: |
-        gcloud builds submit --config cloudbuild.yaml .
+        echo "🏗️ 构建 Docker 镜像..."
+        docker build -f Dockerfile.cloudrun -t ${{ env.IMAGE }} .
+        echo "✅ 镜像构建完成"
 
-    - name: Get Service URL
+    - name: Push Docker Image
       run: |
-        SERVICE_URL=$(gcloud run services describe weeklyreporter --platform managed --region ${{ env.REGION }} --format 'value(status.url)' || echo "Service not found")
-        echo "🚀 Deployment completed!"
+        echo "📤 推送镜像到 Artifact Registry..."
+        docker push ${{ env.IMAGE }}
+        echo "✅ 镜像推送完成"
+
+    - name: Deploy to Cloud Run
+      run: |
+        echo "🚀 部署到 Cloud Run..."
+        gcloud run deploy weeklyreporter \
+          --image ${{ env.IMAGE }} \
+          --platform managed \
+          --region ${{ env.REGION }} \
+          --allow-unauthenticated \
+          --port 8080 \
+          --memory 1Gi \
+          --cpu 1 \
+          --timeout 3600 \
+          --max-instances 1 \
+          --service-account ${{ env.SERVICE_ACCOUNT }} \
+          --set-env-vars TZ=Asia/Shanghai \
+          --quiet
+        echo "✅ 部署完成"
+
+    - name: Get Service Info
+      run: |
+        echo "📊 获取服务信息..."
+        SERVICE_URL=$(gcloud run services describe weeklyreporter \
+          --platform managed \
+          --region ${{ env.REGION }} \
+          --format 'value(status.url)' || echo "Service not found")
+        
+        echo ""
+        echo "🎉 部署结果:"
         echo "🔗 Service URL: $SERVICE_URL"
+        
         if [ "$SERVICE_URL" != "Service not found" ]; then
           echo "📝 健康检查: curl $SERVICE_URL/health"
+          echo "📝 状态检查: curl $SERVICE_URL/status"
+          echo "📝 手动触发: curl -X POST $SERVICE_URL/run"
+        else
+          echo "❌ 服务部署可能失败"
         fi 
