@@ -52,14 +52,18 @@ jobs:
           --region asia-east1 \
           --allow-unauthenticated \
           --port 8080 \
-          --memory 512Mi \
+          --memory 1Gi \
           --cpu 1 \
           --timeout 3600 \
           --max-instances 1 \
+          --min-instances 0 \
+          --concurrency 1 \
+          --execution-environment gen2 \
           --set-env-vars TZ=Asia/Shanghai
 
     - name: Get Service URL
       run: |
         SERVICE_URL=$(gcloud run services describe weeklyreporter --platform managed --region asia-east1 --format 'value(status.url)')
         echo "🚀 Service deployed successfully!"
-        echo "🔗 Service URL: $SERVICE_URL" 
+        echo "🔗 Service URL: $SERVICE_URL"
+        echo "📝 健康检查: curl $SERVICE_URL/health" 
