@@ -5,6 +5,11 @@ on:
     branches: [ main ]
   workflow_dispatch:  # 允许手动触发
 
+env:
+  PROJECT_ID: solar-idea-463423-h8
+  SERVICE_ACCOUNT: weeklyreporter@solar-idea-463423-h8.iam.gserviceaccount.com
+  REGION: asia-east1
+
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
@@ -17,17 +22,25 @@ jobs:
       uses: google-github-actions/auth@v2
       with:
         credentials_json: ${{ secrets.GCP_SA_KEY }}
+        service_account: ${{ env.SERVICE_ACCOUNT }}
 
     - name: Set up Google Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
       with:
-        project_id: solar-idea-463423-h8
+        project_id: ${{ env.PROJECT_ID }}
+
+    - name: Verify Service Account
+      run: |
+        echo "🔍 当前使用的 Service Account:"
+        gcloud auth list
+        echo "🔍 当前项目: ${{ env.PROJECT_ID }}"
+        gcloud config get-value project
 
     - name: Create Artifact Registry repository (if not exists)
       run: |
         gcloud artifacts repositories create weeklyreporter \
           --repository-format=docker \
-          --location=asia-east1 \
+          --location=${{ env.REGION }} \
           --description="WeeklyReporter Docker images" || echo "Repository already exists"
 
     - name: Deploy using Cloud Build
@@ -36,7 +49,7 @@ jobs:
 
     - name: Get Service URL
       run: |
-        SERVICE_URL=$(gcloud run services describe weeklyreporter --platform managed --region asia-east1 --format 'value(status.url)' || echo "Service not found")
+        SERVICE_URL=$(gcloud run services describe weeklyreporter --platform managed --region ${{ env.REGION }} --format 'value(status.url)' || echo "Service not found")
         echo "🚀 Deployment completed!"
         echo "🔗 Service URL: $SERVICE_URL"
         if [ "$SERVICE_URL" != "Service not found" ]; then
