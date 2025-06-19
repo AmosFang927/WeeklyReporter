@@ -1,0 +1,26 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制项目文件
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 安装额外的依赖（用于Web服务）
+RUN pip install flask gunicorn
+
+COPY . .
+
+# 创建一个简单的Web服务来响应Cloud Run的健康检查
+RUN echo 'from flask import Flask, jsonify\nfrom datetime import datetime\nimport subprocess\nimport threading\n\napp = Flask(__name__)\n\n@app.route("/", methods=["GET"])\ndef health_check():\n    return jsonify({\n        "status": "healthy",\n        "service": "WeeklyReporter",\n        "timestamp": datetime.now().isoformat()\n    })\n\n@app.route("/run", methods=["POST"])\ndef run_weekly_reporter():\n    try:\n        def run_in_background():\n            subprocess.run(["python", "main.py"], check=True)\n        \n        thread = threading.Thread(target=run_in_background)\n        thread.start()\n        \n        return jsonify({\n            "status": "started",\n            "message": "WeeklyReporter task started in background"\n        })\n    except Exception as e:\n        return jsonify({\n            "status": "error",\n            "message": str(e)\n        }), 500\n\n@app.route("/status", methods=["GET"])\ndef status():\n    return jsonify({\n        "status": "running",\n        "service": "WeeklyReporter",\n        "description": "Weekly reporting service for Involve Asia data"\n    })\n\nif __name__ == "__main__":\n    import os\n    port = int(os.environ.get("PORT", 8080))\n    app.run(host="0.0.0.0", port=port)' > web_server.py
+
+# 暴露端口
+EXPOSE 8080
+
+# 使用gunicorn运行Web服务
+CMD exec gunicorn --bind :8080 --workers 1 --threads 8 --timeout 0 web_server:app 

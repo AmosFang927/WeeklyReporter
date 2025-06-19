@@ -1,0 +1,58 @@
+name: Deploy WeeklyReporter to GCP Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    
+    environment: production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Google Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: solar-idea-463423-h8
+        service_account_key: ${{ secrets.GCP_SA_KEY }}
+        export_default_credentials: true
+
+    - name: Configure Docker for GCR
+      run: |
+        gcloud auth configure-docker
+
+    - name: Build Docker Image
+      run: |
+        IMAGE="gcr.io/solar-idea-463423-h8/weeklyreporter"
+        docker build -f Dockerfile.cloudrun -t $IMAGE .
+        echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+    - name: Push Docker Image to GCR
+      run: |
+        docker push $IMAGE
+
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy weeklyreporter \
+          --image $IMAGE \
+          --platform managed \
+          --region asia-east1 \
+          --allow-unauthenticated \
+          --port 8080 \
+          --memory 512Mi \
+          --cpu 1 \
+          --timeout 3600 \
+          --max-instances 1 \
+          --set-env-vars TZ=Asia/Shanghai \
+          --service-account ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+    - name: Get Service URL
+      run: |
+        SERVICE_URL=$(gcloud run services describe weeklyreporter --platform managed --region asia-east1 --format 'value(status.url)')
+        echo "🚀 Service deployed successfully!"
+        echo "🔗 Service URL: $SERVICE_URL" 

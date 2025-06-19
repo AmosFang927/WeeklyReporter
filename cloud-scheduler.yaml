@@ -1,0 +1,41 @@
+# Google Cloud Scheduler 配置
+# 用於定時觸發 WeeklyReporter
+
+# 創建 Cloud Scheduler 任務的 gcloud 命令：
+# gcloud scheduler jobs create http weeklyreporter-daily \
+#   --schedule="0 12 * * *" \
+#   --uri=https://weeklyreporter-<hash>-as.a.run.app/run \
+#   --http-method=POST \
+#   --location=asia-east1 \
+#   --time-zone=Asia/Shanghai \
+#   --description="Daily WeeklyReporter execution at 12:00 PM"
+
+# 或者使用以下 YAML 配置：
+name: projects/solar-idea-463423-h8/locations/asia-east1/jobs/weeklyreporter-daily
+description: Daily WeeklyReporter execution at 12:00 PM
+schedule: "0 12 * * *"
+timeZone: Asia/Shanghai
+httpTarget:
+  uri: https://weeklyreporter-<SERVICE_HASH>-as.a.run.app/run
+  httpMethod: POST
+  headers:
+    Content-Type: application/json
+  body: |
+    {
+      "trigger": "scheduler",
+      "description": "Daily automated run"
+    }
+
+---
+# 部署指令：
+# 1. 首先部署 Cloud Run 服務
+# 2. 獲取服務 URL
+# 3. 創建 Cloud Scheduler 任務：
+
+# gcloud scheduler jobs create http weeklyreporter-daily \
+#   --schedule="0 12 * * *" \
+#   --uri=<YOUR_CLOUD_RUN_URL>/run \
+#   --http-method=POST \
+#   --location=asia-east1 \
+#   --time-zone=Asia/Shanghai \
+#   --description="Daily WeeklyReporter execution at 12:00 PM" 
