@@ -103,7 +103,8 @@ PUB_EMAIL_ENABLED = {
 PUB_EMAIL_MAPPING = {
     "OEM2": ["AmosFang927+OEM2@gmail.com"],
     "OEM3": ["AmosFang927+OEM3@gmail.com"],
-    "RAMPUP": ["max@rampupads.com", "offer@rampupads.com", "bill.zhang@rampupads.com"],
+    "RAMPUP": ["amosfang927@gmail.com"],
+    # "RAMPUP": ["max@rampupads.com", "offer@rampupads.com", "bill.zhang@rampupads.com"],
     "TestPub": ["AmosFang927+TestPub@gmail.com"],
     # 可以添加更多Pub对应的收件人
     # "PubName": ["email1@example.com", "email2@example.com"]
