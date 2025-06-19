@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.weeklyreporter.schedule</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/Cellar/python@3.13/3.13.3_1/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python</string>
+        <string>/Users/amosfang/WeeklyReporter/main.py</string>
+        <string>--upload-feishu</string>
+        <string>--send-email</string>
+    </array>
+    
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/amosfang/WeeklyReporter</string>
+    
+    <key>StandardOutPath</key>
+    <string>/Users/amosfang/WeeklyReporter/logs/scheduler.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/amosfang/WeeklyReporter/logs/scheduler_error.log</string>
+    
+    <key>RunAtLoad</key>
+    <false/>
+    
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist> 

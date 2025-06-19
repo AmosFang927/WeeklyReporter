@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""
+JSON到Excel转换模块
+负责将JSON格式的conversion数据转换为Excel文件
+"""
+
+import json
+import pandas as pd
+import os
+from utils.logger import print_step
+import config
+from openpyxl import Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
+
+class JSONToExcelConverter:
+    """JSON到Excel转换器"""
+    
+    def __init__(self):
+        pass
+    
+    def convert(self, json_data, output_filename=None):
+        """
+        将JSON数据转换为Excel文件
+        
+        Args:
+            json_data: JSON数据（可以是字符串、字典或文件路径）
+            output_filename: 输出文件名，如果为None则自动生成
+        
+        Returns:
+            str: 生成的Excel文件路径
+        """
+        print_step("开始转换", "正在将JSON数据转换为Excel格式...")
+        
+        # 处理输入数据
+        data = self._process_input(json_data)
+        
+        # 验证数据结构
+        conversion_records = self._validate_and_extract(data)
+        
+        # 转换为DataFrame
+        df = self._create_dataframe(conversion_records)
+        
+        # 生成输出文件名
+        output_path = self._generate_output_path(output_filename)
+        
+        # 导出Excel
+        return self._export_to_excel(df, data, output_path)
+    
+    def _process_input(self, json_data):
+        """处理输入数据，支持多种格式"""
+        if isinstance(json_data, str):
+            # 检查是否是文件路径
+            if os.path.isfile(json_data):
+                print_step("数据加载", f"从文件加载JSON数据: {json_data}")
+                try:
+                    with open(json_data, 'r', encoding='utf-8') as f:
+                        return json.load(f)
+                except Exception as e:
+                    raise ValueError(f"无法读取JSON文件: {str(e)}")
+            else:
+                # 尝试解析JSON字符串
+                try:
+                    return json.loads(json_data)
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"JSON解析失败: {str(e)}")
+        else:
+            return json_data
+    
+    def _validate_and_extract(self, data):
+        """验证JSON结构并提取转换记录"""
+        print_step("数据验证", "正在验证JSON数据结构...")
+        
+        # 验证基本结构
+        if not isinstance(data, dict):
+            raise ValueError("JSON数据必须是字典格式")
+        
+        if 'data' not in data:
+            raise ValueError("JSON结构不正确，缺少'data'字段")
+        
+        if not isinstance(data['data'], dict) or 'data' not in data['data']:
+            raise ValueError("JSON结构不正确，缺少'data.data'字段")
+        
+        # 提取转换记录数组
+        conversion_records = data['data']['data']
+        
+        if not isinstance(conversion_records, list):
+            raise ValueError("转换记录数据必须是数组格式")
+        
+        if not conversion_records:
+            print_step("数据警告", "没有找到转换记录数据，将创建空的Excel文件")
+            conversion_records = []
+        else:
+            print_step("数据验证完成", f"找到 {len(conversion_records)} 条转换记录")
+        
+        return conversion_records
+    
+    def _create_dataframe(self, conversion_records):
+        """创建pandas DataFrame"""
+        print_step("数据转换", f"正在创建DataFrame，包含 {len(conversion_records)} 条记录...")
+        
+        df = pd.DataFrame(conversion_records)
+        
+        if len(df) > 0:
+            print_step("DataFrame创建", f"DataFrame包含 {len(df)} 行，{len(df.columns)} 列")
+            print_step("列信息", f"列名: {list(df.columns)}")
+        else:
+            print_step("DataFrame创建", "创建了空的DataFrame")
+        
+        return df
+    
+    def _generate_output_path(self, output_filename):
+        """生成输出文件路径"""
+        if output_filename is None:
+            output_filename = config.get_output_filename()
+        
+        # 确保文件扩展名为.xlsx
+        if not output_filename.endswith('.xlsx'):
+            output_filename += '.xlsx'
+        
+        # 确保输出目录存在
+        config.ensure_output_dirs()
+        
+        # 生成完整路径
+        output_path = os.path.join(config.OUTPUT_DIR, output_filename)
+        return output_path
+    
+    def _export_to_excel(self, df, original_data, output_path):
+        """导出DataFrame到Excel文件"""
+        print_step("文件导出", f"正在导出Excel文件: {output_path}")
+        
+        try:
+            # 使用自定义方法导出并设置货币格式
+            self._export_excel_with_currency_format(df, output_path)
+            
+            # 输出成功信息
+            print_step("导出成功", f"成功转换 {len(df)} 条记录到 {output_path}")
+            
+            # 输出数据概览
+            self._print_conversion_summary(df, original_data, output_path)
+            
+            return output_path
+            
+        except Exception as e:
+            raise RuntimeError(f"导出Excel文件失败: {str(e)}")
+    
+    def _export_excel_with_currency_format(self, data, filepath):
+        """
+        导出Excel并为sale_amount栏位设置美元货币格式
+        
+        Args:
+            data: 要导出的DataFrame
+            filepath: 输出文件路径
+        """
+        # 创建工作簿和工作表
+        wb = Workbook()
+        ws = wb.active
+        ws.title = config.EXCEL_SHEET_NAME
+        
+        # 写入数据（包含标题行）
+        for r in dataframe_to_rows(data, index=False, header=True):
+            ws.append(r)
+        
+        # 查找sale_amount列的索引
+        sale_amount_col = None
+        if 'sale_amount' in data.columns:
+            sale_amount_col = data.columns.get_loc('sale_amount') + 1  # Excel列索引从1开始
+            
+            # 应用货币格式到sale_amount列（跳过标题行）
+            for row in range(2, len(data) + 2):  # 从第2行开始（第1行是标题）
+                cell = ws.cell(row=row, column=sale_amount_col)
+                cell.number_format = '"$"#,##0.00'
+            
+            print_step("货币格式", f"已为sale_amount栏位设置美元货币格式")
+        
+        # 保存文件
+        wb.save(filepath)
+    
+    def _print_conversion_summary(self, df, original_data, output_path):
+        """打印转换结果摘要"""
+        print_step("转换摘要", "数据转换完成，详细信息如下:")
+        
+        print(f"📊 数据概览:")
+        print(f"   - 状态: {original_data.get('status', 'N/A')}")
+        print(f"   - 消息: {original_data.get('message', 'N/A')}")
+        
+        data_info = original_data.get('data', {})
+        print(f"   - 总记录数: {data_info.get('count', 'N/A')}")
+        print(f"   - 当前页: {data_info.get('page', 'N/A')}")
+        print(f"   - 每页限制: {data_info.get('limit', 'N/A')}")
+        print(f"   - 获取页数: {data_info.get('pages_fetched', 'N/A')}")
+        
+        print(f"📄 Excel文件信息:")
+        print(f"   - 文件路径: {output_path}")
+        print(f"   - 工作表名: {config.EXCEL_SHEET_NAME}")
+        print(f"   - 行数: {len(df)}")
+        print(f"   - 列数: {len(df.columns)}")
+        
+        if len(df) > 0:
+            print(f"   - 列名: {', '.join(df.columns)}")
+        
+        # 输出文件大小
+        if os.path.exists(output_path):
+            file_size = os.path.getsize(output_path)
+            print(f"   - 文件大小: {file_size:,} bytes")
+
+# 便捷函数
+def json_to_excel(json_data, output_filename=None):
+    """
+    便捷的转换函数
+    
+    Args:
+        json_data: JSON数据（可以是字符串、字典或文件路径）
+        output_filename: 输出文件名
+    
+    Returns:
+        str: 生成的Excel文件路径
+    """
+    converter = JSONToExcelConverter()
+    return converter.convert(json_data, output_filename) 
