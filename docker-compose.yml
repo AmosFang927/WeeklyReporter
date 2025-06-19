@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  weeklyreporter:
+    build: .
+    container_name: weeklyreporter
+    volumes:
+      - ./output:/app/output  # 映射输出目录到本地
+      - ./temp:/app/temp      # 映射临时目录到本地
+    environment:
+      - TZ=Asia/Shanghai      # 设置时区
+    restart: unless-stopped
+    # 如果需要定时运行，可以注释掉 command 行
+    # command: ["python", "-c", "import time; time.sleep(86400)"]  # 保持容器运行
+    
+  # 可选：定时任务服务
+  weeklyreporter-scheduler:
+    build: .
+    container_name: weeklyreporter-scheduler
+    volumes:
+      - ./output:/app/output
+      - ./temp:/app/temp
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    command: ["python", "modules/scheduler.py"]  # 运行定时任务 
