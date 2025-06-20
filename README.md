@@ -1,227 +1,205 @@
-# WeeklyReporter
+# WeeklyReporter - Involve Asia数据处理工具
 
-一个用于从Involve Asia API获取conversion数据并生成Excel周报的自动化工具。
+🚀 **自动化的周报生成和分发系统**
 
-## 📋 功能特性
+## ✨ 功能特点
 
-- 🔌 **API数据获取**: 从Involve Asia API获取conversion数据
-- 📊 **Excel转换**: 将JSON数据转换为Excel格式
-- 🔧 **模块化设计**: 每个功能独立模块，可单独测试
-- 📝 **详细日志**: 关键步骤的详细日志记录
-- ⚙️ **灵活配置**: 统一的配置管理
+- **🔄 自动数据获取**: 从 Involve Asia API 获取转换数据
+- **📊 智能数据处理**: 自动清洗、分类和格式化数据
+- **📈 多格式报告**: 生成Excel格式的详细报告
+- **📧 自动邮件发送**: 支持按Partner分别发送定制报告
+- **☁️ 飞书云文档**: 自动上传报告到飞书Sheet
+- **⏰ 定时任务**: 支持每日自动执行
+- **🎯 多Partner支持**: 支持RAMPUP、YueMeng等多个合作伙伴
+
+## 🏗️ 架构设计
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Involve Asia  │    │  WeeklyReporter  │    │   输出渠道      │
+│      API        │───▶│    处理引擎      │───▶│                 │
+└─────────────────┘    └──────────────────┘    │ • Excel文件     │
+                                               │ • 邮件发送     │
+                       ┌──────────────────┐    │ • 飞书上传     │
+                       │  Cloud Scheduler │    └─────────────────┘
+                       │    定时任务      │           ▲
+                       └──────────────────┘           │
+                                │                     │
+                                ▼                     │
+                       ┌──────────────────┐           │
+                       │   Google Cloud   │───────────┘
+                       │      Run         │
+                       └──────────────────┘
+```
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+### 1. 环境要求
+
+- Python 3.11+
+- pandas >= 1.5.0
+- openpyxl >= 3.0.0
+- requests >= 2.28.0
+
+### 2. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. 配置设置
+### 3. 配置设置
 
-编辑 `config.py` 文件中的API配置：
-
-```python
-INVOLVE_ASIA_API_SECRET = "your_api_secret_here"
-INVOLVE_ASIA_API_KEY = "your_api_key_here"
-```
-
-### 3. 运行程序
-
-```bash
-# 运行完整工作流（使用默认日期范围）
-python main.py
-
-# 指定日期范围
-python main.py --start-date 2025-01-01 --end-date 2025-01-07
-
-# 指定输出文件名
-python main.py --output "我的周报.xlsx"
-```
-
-## 📁 项目结构
-
-```
-WeeklyReporter/
-├── main.py                 # 主程序入口
-├── config.py               # 全局配置文件
-├── requirements.txt        # 依赖管理
-├── modules/                # 核心功能模块
-│   ├── __init__.py
-│   ├── involve_asia_api.py # API数据获取模块
-│   └── json_to_excel.py    # JSON转Excel模块
-├── utils/                  # 工具模块
-│   ├── __init__.py
-│   └── logger.py           # 日志工具
-└── output/                 # 输出文件目录（自动创建）
-```
-
-## 🔧 使用方法
-
-### 完整工作流
-
-```bash
-# 基本使用
-python main.py
-
-# 自定义日期范围
-python main.py --start-date 2025-01-01 --end-date 2025-01-07
-
-# 保存中间JSON文件
-python main.py --save-json
-
-# 自定义输出文件名
-python main.py --output "weekly_report_custom.xlsx"
-```
-
-### 单独功能模块
-
-```bash
-# 只获取API数据
-python main.py --api-only
-
-# 只转换现有JSON文件
-python main.py --convert-only conversions.json
-```
-
-### 命令行参数
-
-- `--start-date`: 开始日期 (YYYY-MM-DD格式)
-- `--end-date`: 结束日期 (YYYY-MM-DD格式)
-- `--output, -o`: Excel输出文件名
-- `--api-only`: 只执行API数据获取
-- `--convert-only`: 只执行JSON到Excel转换
-- `--save-json`: 保存中间JSON文件
-- `--verbose, -v`: 显示详细日志
-
-## 📊 模块功能
-
-### 1. API模块 (`modules/involve_asia_api.py`)
-
-负责从Involve Asia API获取conversion数据：
-
-```python
-from modules.involve_asia_api import InvolveAsiaAPI
-
-api = InvolveAsiaAPI()
-api.authenticate()
-data = api.get_conversions("2025-01-01", "2025-01-07")
-```
-
-### 2. 转换模块 (`modules/json_to_excel.py`)
-
-负责将JSON数据转换为Excel文件：
-
-```python
-from modules.json_to_excel import json_to_excel
-
-excel_file = json_to_excel(json_data, "output.xlsx")
-```
-
-### 3. 日志工具 (`utils/logger.py`)
-
-统一的日志记录功能：
-
-```python
-from utils.logger import print_step
-
-print_step("步骤名称", "执行信息")
-```
-
-## ⚙️ 配置说明
-
-### 核心配置 (`config.py`)
+编辑 `config.py` 文件，设置必要的API密钥和配置：
 
 ```python
 # API配置
-INVOLVE_ASIA_API_SECRET = "your_secret"
+INVOLVE_ASIA_API_SECRET = "your_api_secret"
 INVOLVE_ASIA_API_KEY = "general"
 
-# 业务配置
-DEFAULT_DATE_RANGE = 1  # 默认获取1天数据
-PREFERRED_CURRENCY = "USD"
-
-# 文件配置
-OUTPUT_DIR = "output"
-FILE_NAME_TEMPLATE = "Pub_ConversionReport_{date}.xlsx"
+# Partner配置
+PARTNER_SOURCES_MAPPING = {
+    "RAMPUP": {
+        "sources": ["RAMPUP"],
+        "pattern": r"^(RAMPUP|RPID.*)",
+        "email_enabled": True,
+        "email_recipients": ["example@example.com"]
+    }
+}
 ```
 
-### 环境变量支持
-
-可以通过环境变量覆盖配置：
+### 4. 运行程序
 
 ```bash
-export INVOLVE_ASIA_API_SECRET="your_secret"
-export PREFERRED_CURRENCY="USD"
+# 运行完整工作流
+python main.py
+
+# 只处理特定Partner
+python main.py --partner RAMPUP,YueMeng
+
+# 指定日期范围
+python main.py --start-date 2025-06-17 --end-date 2025-06-18
 ```
 
-## 📋 输出格式
+## 📅 定时任务
 
-### Excel文件
+### Cloud Scheduler配置
 
-- **默认文件名**: `Pub_ConversionReport_YYYY-MM-DD.xlsx`
-- **工作表名**: `Conversion Report`
-- **位置**: `output/` 目录
+项目支持Google Cloud Scheduler进行定时任务：
 
-### JSON文件（可选）
+```bash
+# 设置每日下午4点运行
+./setup_cloud_scheduler_4pm.sh
 
-- **文件名**: `conversions_YYYYMMDD_HHMMSS.json`
-- **位置**: `output/` 目录
-
-## 🔍 日志输出示例
-
-```
-🚀 WeeklyReporter - Involve Asia数据处理工具
-============================================================
-⏰ 启动时间: 2025-01-18 10:30:00
-📂 输出目录: output
-============================================================
-[2025-01-18 10:30:01] 工作流开始: 开始执行WeeklyReporter完整工作流
-[2025-01-18 10:30:01] 认证步骤: 正在执行API认证...
-[2025-01-18 10:30:02] 认证成功: 获得Token: t-xxxxx...
-[2025-01-18 10:30:02] 数据获取: 正在获取转换数据 (2025-01-17 到 2025-01-18)
-[2025-01-18 10:30:05] 数据获取成功: 成功获取完整数据: 150 条转换记录，共 2 页
-[2025-01-18 10:30:05] 开始转换: 正在将JSON数据转换为Excel格式...
-[2025-01-18 10:30:06] 导出成功: 成功转换 150 条记录到 output/Pub_ConversionReport_2025-01-18.xlsx
-[2025-01-18 10:30:06] 工作流完成: WeeklyReporter工作流执行成功
-
-🎉 完整工作流执行成功！
-📊 Excel文件已生成: output/Pub_ConversionReport_2025-01-18.xlsx
+# 测试定时任务
+./test_scheduler_4pm.sh
 ```
 
-## 🚨 常见问题
+### 本地调度器
 
-### API认证失败
+```bash
+# 启动本地定时任务
+python main.py --start-scheduler
+```
 
-**问题**: 认证步骤失败
-**解决**: 检查 `config.py` 中的API密钥是否正确
+## 📊 Partner配置
 
-### 数据获取失败
+系统支持多个Partner的独立处理：
 
-**问题**: API返回429错误
-**解决**: 程序会自动处理频率限制，等待后重试
+- **RAMPUP**: RAMPUP、RPID开头的sources
+- **YueMeng**: OPPO、VIVO、OEM2、OEM3 sources
+- **TestPartner**: 测试用途
 
-### 文件输出问题
+每个Partner可以独立配置：
+- 邮件发送开关
+- 收件人列表
+- 数据过滤规则
 
-**问题**: 输出目录不存在
-**解决**: 程序会自动创建 `output/` 目录
+## 🔧 部署选项
 
-## 📧 技术支持
+### 1. Google Cloud Run
 
-如有问题，请检查：
+```bash
+# 自动部署 (推荐)
+git push origin main  # 触发GitHub Actions自动部署
 
-1. ✅ Python版本 >= 3.7
-2. ✅ 依赖包已正确安装
-3. ✅ API配置信息正确
-4. ✅ 网络连接正常
+# 手动部署
+gcloud builds submit --config cloudbuild.yaml .
+```
 
-## 📝 更新日志
+### 2. 本地运行
 
-### v1.0.0 (2025-01-18)
+```bash
+# 直接运行
+python main.py
 
-- ✨ 初始版本发布
-- 🔌 Involve Asia API集成
-- 📊 JSON到Excel转换功能
-- 🔧 模块化架构设计
-- 📝 详细日志记录 
+# Docker运行
+docker-compose up
+```
+
+## 📁 输出文件
+
+- **Excel报告**: `output/PartnerName_ConversionReport_YYYY-MM-DD.xlsx`
+- **JSON数据**: `output/conversions_YYYYMMDD_HHMMSS.json`
+- **日志文件**: 控制台输出和Cloud Logging
+
+## 🛠️ 高级功能
+
+### API端点
+
+当部署到Cloud Run时，提供以下HTTP端点：
+
+- `GET /health` - 健康检查
+- `GET /status` - 服务状态
+- `POST /run` - 触发报告生成
+
+### 邮件模板
+
+支持自定义HTML邮件模板，包含：
+- Partner专属内容
+- 数据汇总表格
+- 飞书链接（可选）
+
+### 飞书集成
+
+- 自动上传Excel文件到指定文件夹
+- 支持大文件分片上传
+- 自动获取访问token
+
+## 🔍 监控和调试
+
+### 查看日志
+
+```bash
+# Cloud Run日志
+gcloud logs read --limit=50 \
+  --filter='resource.type="cloud_run_revision"'
+
+# Scheduler日志
+gcloud logs read --limit=20 \
+  --filter='resource.type="cloud_scheduler_job"'
+```
+
+### 测试连接
+
+```bash
+# 测试飞书连接
+python main.py --test-feishu
+
+# 测试邮件连接
+python main.py --test-email
+```
+
+## 📞 支持
+
+如有问题，请查看：
+
+1. [部署指南](GCP_DEPLOYMENT.md)
+2. [邮件设置](EMAIL_SETUP_README.md)
+3. [飞书配置](FEISHU_UPLOAD_README.md)
+4. [调度器设置](SCHEDULER_SETUP_GUIDE.md)
+
+---
+
+**Last Updated**: 2025-06-20  
+**Version**: 2.0.0  
+**Cloud Scheduler**: ✅ Daily 4PM for RAMPUP & YueMeng partners 
