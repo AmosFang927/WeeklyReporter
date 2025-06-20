@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from datetime import datetime
 import subprocess
 import threading
@@ -21,17 +21,38 @@ def health_check():
 def run_weekly_reporter():
     """手动触发WeeklyReporter任务"""
     try:
+        # 获取请求参数
+        data = request.get_json() if request.is_json else {}
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        
+        # 构建命令
+        cmd = ["python", "main.py"]
+        if start_date:
+            cmd.extend(["--start-date", start_date])
+        if end_date:
+            cmd.extend(["--end-date", end_date])
+        
         def run_in_background():
-            subprocess.run(["python", "main.py"], check=True)
+            subprocess.run(cmd, check=True)
         
         thread = threading.Thread(target=run_in_background)
         thread.start()
         
-        return jsonify({
+        response = {
             "status": "started",
             "message": "WeeklyReporter task started in background",
-            "timestamp": datetime.now().isoformat()
-        })
+            "timestamp": datetime.now().isoformat(),
+            "command": " ".join(cmd)
+        }
+        
+        if start_date or end_date:
+            response["date_range"] = {
+                "start_date": start_date,
+                "end_date": end_date
+            }
+        
+        return jsonify(response)
     except Exception as e:
         return jsonify({
             "status": "error",
@@ -49,7 +70,7 @@ def status():
         "endpoints": {
             "/": "Health check",
             "/health": "Health check",
-            "/run": "Manual trigger (POST)",
+            "/run": "Manual trigger (POST) - supports start_date and end_date in JSON body",
             "/status": "Service status"
         },
         "timestamp": datetime.now().isoformat()
