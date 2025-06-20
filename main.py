@@ -29,7 +29,7 @@ class WeeklyReporter:
         self.email_sender = EmailSender()
         self.scheduler = None
     
-    def run_full_workflow(self, start_date=None, end_date=None, output_filename=None, save_json=False, upload_to_feishu=False, send_email=False):
+    def run_full_workflow(self, start_date=None, end_date=None, output_filename=None, save_json=False, upload_to_feishu=False, send_email=False, max_records=None, target_partner=None):
         """
         运行完整的工作流程
         
@@ -40,11 +40,22 @@ class WeeklyReporter:
             save_json: 是否保存中间JSON文件
             upload_to_feishu: 是否上传到飞书
             send_email: 是否发送邮件
+            max_records: 最大记录数限制
+            target_partner: 指定要处理的Partner
         
         Returns:
             dict: 包含生成文件路径的结果
         """
         print_step("工作流开始", "开始执行WeeklyReporter完整工作流")
+        
+        # 应用配置参数
+        if max_records is not None:
+            config.MAX_RECORDS_LIMIT = max_records
+            print_step("数据限制", f"设置最大记录数限制: {max_records}")
+        
+        if target_partner is not None:
+            config.TARGET_PARTNER = target_partner
+            print_step("Partner过滤", f"设置目标Partner: {target_partner}")
         
         result = {
             'success': False,
@@ -76,20 +87,27 @@ class WeeklyReporter:
             
             # 步骤4: 数据处理与清洗
             print_step("数据处理", "开始执行数据清洗与Pub分类导出")
-            # 获取查询日期用于文件名
-            query_date = end_date if end_date else (start_date if start_date else None)
-            if not query_date:
-                # 如果没有指定日期，使用默认日期范围的结束日期
-                _, query_date = config.get_default_date_range()
-            processor_result = self.data_processor.process_data(conversion_data, report_date=query_date)
+            # 获取实际的日期范围
+            actual_start_date = start_date
+            actual_end_date = end_date
+            if not actual_start_date or not actual_end_date:
+                # 如果没有指定日期，使用默认日期范围
+                actual_start_date, actual_end_date = config.get_default_date_range()
+            
+            # 传递完整的日期范围信息
+            processor_result = self.data_processor.process_data(
+                conversion_data, 
+                start_date=actual_start_date, 
+                end_date=actual_end_date
+            )
             result['processing_summary'] = processor_result
             result['pub_files'] = processor_result.get('pub_files', [])
             
             # 步骤5: 生成主Excel文件（使用清洗后的数据）
             print_step("主Excel生成", "使用清洗后的数据生成主Excel文件")
-            # 确定输出文件名，如果没有指定则使用查询日期
+            # 确定输出文件名，如果没有指定则使用日期范围
             if not output_filename:
-                output_filename = config.get_output_filename(query_date)
+                output_filename = f"AllPartners_ConversionReport_{actual_start_date}_to_{actual_end_date}.xlsx"
             
             # 使用清洗后的数据生成主Excel文件
             cleaned_data = self.data_processor.processed_data
@@ -116,21 +134,22 @@ class WeeklyReporter:
             
             # 步骤7: 邮件发送（可选）
             if send_email:
-                print_step("邮件发送", "开始按Pub分别发送转换报告邮件")
+                print_step("邮件发送", "开始按Partner分别发送转换报告邮件")
                 
-                # 准备Pub汇总数据用于邮件发送
-                pub_summary_for_email = self._prepare_pub_summary_for_email(result)
+                # 准备Partner汇总数据用于邮件发送
+                partner_summary_for_email = self._prepare_partner_summary_for_email(result)
                 
-                # 按Pub分别发送邮件
-                email_result = self.email_sender.send_pub_reports(
-                    pub_summary_for_email, 
+                # 按Partner分别发送邮件
+                email_result = self.email_sender.send_partner_reports(
+                    partner_summary_for_email, 
                     result.get('feishu_upload'),
-                    query_date  # 传递报告日期
+                    actual_end_date,  # 传递报告日期（使用结束日期）
+                    actual_start_date  # 传递开始日期
                 )
                 result['email_result'] = email_result
                 
                 if email_result['success']:
-                    print_step("邮件发送完成", f"✅ 已成功发送 {email_result['total_sent']} 个Pub报告邮件")
+                    print_step("邮件发送完成", f"✅ 已成功发送 {email_result['total_sent']} 个Partner报告邮件")
                 else:
                     print_step("邮件发送失败", f"⚠️ 邮件发送完成：成功 {email_result['total_sent']} 个，失败 {email_result['total_failed']} 个")
             
@@ -223,27 +242,32 @@ class WeeklyReporter:
         
         return output_path
     
-    def _prepare_pub_summary_for_email(self, result):
-        """准备Pub汇总数据用于邮件发送"""
-        pub_summary_for_email = {}
+    def _prepare_partner_summary_for_email(self, result):
+        """准备Partner汇总数据用于邮件发送"""
+        partner_summary_for_email = {}
         
-        # 从处理结果中提取Pub信息
+        # 从处理结果中提取Partner信息
         processing_summary = result.get('processing_summary', {})
-        pub_summary = processing_summary.get('pub_summary', {})
+        partner_summary = processing_summary.get('partner_summary', {})
         
         if result.get('pub_files'):
             for pub_file_path in result['pub_files']:
                 filename = os.path.basename(pub_file_path)
-                pub_name = filename.split('_')[0]  # 从文件名提取Pub名称
-                pub_info = pub_summary.get(pub_name, {})
+                partner_name = filename.split('_')[0]  # 从文件名提取Partner名称
+                partner_info = partner_summary.get(partner_name, {})
                 
-                pub_summary_for_email[pub_name] = {
-                    'records': pub_info.get('records', 0),
-                    'amount_formatted': pub_info.get('amount_formatted', '$0.00'),
+                partner_summary_for_email[partner_name] = {
+                    'records': partner_info.get('records', 0),
+                    'amount_formatted': partner_info.get('amount_formatted', '$0.00'),
                     'file_path': pub_file_path
                 }
         
-        return pub_summary_for_email
+        return partner_summary_for_email
+    
+    # 保持向后兼容性的方法别名
+    def _prepare_pub_summary_for_email(self, result):
+        """向后兼容性方法，调用新的_prepare_partner_summary_for_email"""
+        return self._prepare_partner_summary_for_email(result)
     
     def _prepare_email_data(self, result, start_date=None, end_date=None):
         """准备邮件数据（兼容性保留）"""
@@ -254,19 +278,19 @@ class WeeklyReporter:
         total_records = processing_summary.get('total_records', 0)
         total_amount = processing_summary.get('adjusted_total_amount_formatted', '$0.00')
         
-        # 准备Pub文件信息
-        pub_files_info = []
-        if result.get('pub_files'):
-            pub_summary = processing_summary.get('pub_summary', {})
-            for pub_file_path in result['pub_files']:
-                filename = os.path.basename(pub_file_path)
-                pub_name = filename.split('_')[0]  # 从文件名提取Pub名称
-                pub_info = pub_summary.get(pub_name, {})
+        # 准备Partner文件信息（更新变量名）
+        partner_files_info = []
+        if result.get('pub_files'):  # 保持pub_files变量名以保持兼容性
+            partner_summary = processing_summary.get('partner_summary', {})  # 新的变量名
+            for partner_file_path in result['pub_files']:
+                filename = os.path.basename(partner_file_path)
+                partner_name = filename.split('_')[0]  # 从文件名提取Partner名称
+                partner_info = partner_summary.get(partner_name, {})
                 
-                pub_files_info.append({
+                partner_files_info.append({
                     'filename': filename,
-                    'records': pub_info.get('records', 0),
-                    'amount': pub_info.get('amount_formatted', '$0.00')
+                    'records': partner_info.get('records', 0),
+                    'amount': partner_info.get('amount_formatted', '$0.00')
                 })
         
         return {
@@ -275,7 +299,8 @@ class WeeklyReporter:
             'start_date': start_date or today,
             'end_date': end_date or today,
             'main_file': result.get('excel_file', ''),
-            'pub_files': pub_files_info
+            'partner_files': partner_files_info,  # 新的变量名
+            'pub_files': partner_files_info  # 保持向后兼容性
         }
     
     def run_api_only(self, start_date=None, end_date=None, save_to_file=True):
@@ -364,7 +389,7 @@ class WeeklyReporter:
         if result.get('processing_summary'):
             summary = result['processing_summary']
             print(f"   💰 总金额: ${summary.get('total_sale_amount', 0):,.2f} USD")
-            print(f"   📋 Pub数量: {summary.get('pub_count', 0)} 个")
+            print(f"   📋 Partner数量: {summary.get('partner_count', summary.get('pub_count', 0))} 个")  # 兼容性处理
         
         if result['error']:
             print(f"   ❌ 错误信息: {result['error']}")
@@ -383,6 +408,21 @@ def create_parser():
 
   # 指定日期范围
   python main.py --start-date 2025-01-01 --end-date 2025-01-07
+
+  # 限制获取记录数（例如只获取100条记录）
+  python main.py --limit 100
+
+  # 只处理特定Partner（例如只处理RAMPUP）
+  python main.py --partner RAMPUP
+
+  # 处理多个Partner（例如RAMPUP和YueMeng）
+  python main.py --partner RAMPUP,YueMeng
+
+  # 组合使用：限制100条记录，只处理RAMPUP Partner
+  python main.py --limit 100 --partner RAMPUP --start-date 2025-06-17 --end-date 2025-06-18
+
+  # 组合使用：处理多个Partner
+  python main.py --limit 100 --partner RAMPUP,YueMeng --start-date 2025-06-17 --end-date 2025-06-18
 
   # 只获取API数据
   python main.py --api-only
@@ -408,6 +448,12 @@ def create_parser():
                        help='开始日期 (YYYY-MM-DD格式)')
     parser.add_argument('--end-date', type=str,
                        help='结束日期 (YYYY-MM-DD格式)')
+    
+    # 数据限制参数
+    parser.add_argument('--limit', type=int,
+                       help='最大记录数限制，例如 --limit 100 表示最多获取100条记录')
+    parser.add_argument('--partner', type=str,
+                       help='指定要处理的Partner，支持单个或多个（用逗号分隔），例如 --partner RAMPUP 或 --partner RAMPUP,YueMeng，默认处理所有Partner')
     
     # 输出文件名
     parser.add_argument('--output', '-o', type=str,
@@ -530,6 +576,15 @@ def main():
                 print("\n❌ API数据获取失败")
                 
         else:
+            # 处理多个Partner的情况
+            target_partners = None
+            if args.partner:
+                # 支持用逗号分隔的多个Partner
+                target_partners = [p.strip() for p in args.partner.split(',') if p.strip()]
+                if len(target_partners) == 1:
+                    target_partners = target_partners[0]  # 单个Partner保持字符串格式
+                print(f"📋 指定处理的Partner: {target_partners}")
+            
             # 完整工作流模式 - 默认执行所有流程
             result = reporter.run_full_workflow(
                 start_date=args.start_date,
@@ -537,7 +592,9 @@ def main():
                 output_filename=args.output,
                 save_json=True,  # 默认保存JSON
                 upload_to_feishu=True,  # 默认上传到飞书
-                send_email=True  # 默认发送邮件
+                send_email=True,  # 默认发送邮件
+                max_records=args.limit,  # 数据限制
+                target_partner=target_partners  # Partner过滤（支持单个或多个）
             )
             
             if result['success']:

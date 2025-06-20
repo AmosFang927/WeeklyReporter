@@ -137,6 +137,13 @@ class InvolveAsiaAPI:
                     # 添加到总数据中
                     all_conversions.extend(page_data)
                     
+                    # 检查是否超过记录数限制
+                    if config.MAX_RECORDS_LIMIT is not None and len(all_conversions) >= config.MAX_RECORDS_LIMIT:
+                        # 截断到指定数量
+                        all_conversions = all_conversions[:config.MAX_RECORDS_LIMIT]
+                        print(f"⏹️ 已达到记录数限制 ({config.MAX_RECORDS_LIMIT} 条)，停止获取")
+                        break
+                    
                     # 判断是否还有下一页
                     if not next_page or next_page <= current_page or len(page_data) == 0:
                         print(f"✅ 已获取完所有数据！")

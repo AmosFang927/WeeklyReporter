@@ -144,7 +144,7 @@ PREFERRED_CURRENCY = "USD"
 
 # 文件配置
 OUTPUT_DIR = "output"
-FILE_NAME_TEMPLATE = "Pub_WeeklyReport_{date}.xlsx"
+FILE_NAME_TEMPLATE = "Pub_ConversionReport_{date}.xlsx"
 ```
 
 ### 环境变量支持
@@ -160,7 +160,7 @@ export PREFERRED_CURRENCY="USD"
 
 ### Excel文件
 
-- **默认文件名**: `Pub_WeeklyReport_YYYY-MM-DD.xlsx`
+- **默认文件名**: `Pub_ConversionReport_YYYY-MM-DD.xlsx`
 - **工作表名**: `Conversion Report`
 - **位置**: `output/` 目录
 
@@ -183,11 +183,11 @@ export PREFERRED_CURRENCY="USD"
 [2025-01-18 10:30:02] 数据获取: 正在获取转换数据 (2025-01-17 到 2025-01-18)
 [2025-01-18 10:30:05] 数据获取成功: 成功获取完整数据: 150 条转换记录，共 2 页
 [2025-01-18 10:30:05] 开始转换: 正在将JSON数据转换为Excel格式...
-[2025-01-18 10:30:06] 导出成功: 成功转换 150 条记录到 output/Pub_WeeklyReport_2025-01-18.xlsx
+[2025-01-18 10:30:06] 导出成功: 成功转换 150 条记录到 output/Pub_ConversionReport_2025-01-18.xlsx
 [2025-01-18 10:30:06] 工作流完成: WeeklyReporter工作流执行成功
 
 🎉 完整工作流执行成功！
-📊 Excel文件已生成: output/Pub_WeeklyReport_2025-01-18.xlsx
+📊 Excel文件已生成: output/Pub_ConversionReport_2025-01-18.xlsx
 ```
 
 ## 🚨 常见问题

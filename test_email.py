@@ -25,7 +25,7 @@ def test_send_sample_email():
         'total_amount': '$12,345.67',
         'start_date': '2025-06-18',
         'end_date': '2025-06-18',
-        'main_file': 'Pub_WeeklyReport_2025-06-18.xlsx',
+        'main_file': 'Pub_ConversionReport_2025-06-18.xlsx',
         'pub_files': [
             {
                 'filename': 'OEM2_ConversionReport_2025-06-18.xlsx',
@@ -47,7 +47,7 @@ def test_send_sample_email():
         'failed_count': 0,
         'uploaded_files': [
             {
-                'filename': 'Pub_WeeklyReport_2025-06-18.xlsx',
+                'filename': 'Pub_ConversionReport_2025-06-18.xlsx',
                 'url': 'https://example.feishu.cn/file/123456'
             },
             {

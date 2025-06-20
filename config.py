@@ -42,6 +42,38 @@ RATE_LIMIT_DELAY = 30  # 遇到429错误时的等待时间(秒)
 
 # 分页配置
 DEFAULT_PAGE_LIMIT = 100
+MAX_RECORDS_LIMIT = None  # 最大记录数限制，None表示不限制，例如设置100表示最多获取100条记录
+
+# Partner过滤配置
+TARGET_PARTNER = None  # 指定要处理的Partner，None表示处理所有Partner，例如设置"RAMPUP"只处理RAMPUP
+
+# =============================================================================
+# Partner 和 Sources 映射配置
+# =============================================================================
+# Partner 到 Sources 的映射关系
+# Partner 是逻辑概念，不会出现在 aff_sub1 字段中
+# Sources 是 aff_sub1 字段的实际值
+PARTNER_SOURCES_MAPPING = {
+    "RAMPUP": {
+        "sources": ["RAMPUP"],  # RAMPUP, RPIDxxx... 等以RAMPUP或RPID开头的
+        "pattern": r"^(RAMPUP|RPID.*)",  # 正则表达式匹配模式
+        "email_enabled": True,  # 邮件发送开关
+        "email_recipients": ["amosfang927@gmail.com"]  # 收件人列表
+        # "email_recipients": ["max@rampupads.com", "offer@rampupads.com", "bill.zhang@rampupads.com"]
+    },
+    "YueMeng": {
+        "sources": ["OPPO", "VIVO", "OEM2", "OEM3"],  # 包含OPPO、VIVO、OEM2、OEM3
+        "pattern": r"^(OPPO|VIVO|OEM2|OEM3)$",  # 匹配OPPO、VIVO、OEM2、OEM3
+        "email_enabled": True,  # 邮件发送开关
+        "email_recipients": ["AmosFang927@gmail.com"]  # 收件人列表
+    },
+    "TestPartner": {
+        "sources": ["TestPartner"],
+        "pattern": r"^TestPartner.*",
+        "email_enabled": False,  # 邮件发送开关
+        "email_recipients": ["AmosFang927+TestPub@gmail.com"]  # 收件人列表
+    }
+}
 
 # =============================================================================
 # 文件配置
@@ -51,7 +83,7 @@ OUTPUT_DIR = "output"
 TEMP_DIR = "temp"
 
 # 文件名模板
-FILE_NAME_TEMPLATE = "Pub_WeeklyReport_{date}.xlsx"
+PARTNER_REPORT_TEMPLATE = "{partner}_ConversionReport_{start_date}_to_{end_date}.xlsx"
 JSON_FILE_TEMPLATE = "conversions_{date}_{timestamp}.json"
 
 # Excel配置
@@ -89,26 +121,15 @@ EMAIL_SUBJECT_TEMPLATE = "Conversion Report - {date}"  # 邮件主题模板
 # 邮件自动抄送配置
 EMAIL_AUTO_CC = "AmosFang927@gmail.com"  # 自动抄送邮箱，设为None可禁用
 
-# Pub邮件发送开关配置
-PUB_EMAIL_ENABLED = {
-    "OEM2": False,  # 关闭
-    "OEM3": False,  # 关闭
-    "RAMPUP": True,  # 开启（默认）
-    "TestPub": False,  # 关闭
-    # 可以添加更多Pub的邮件开关
-    # "PubName": True/False
-}
+# Partner邮件配置（从PARTNER_SOURCES_MAPPING动态生成）
+# 这些配置现在从 PARTNER_SOURCES_MAPPING 中的 email_enabled 和 email_recipients 字段获取
+# 注意：实际的配置值将在模块加载完成后动态生成，这里只是占位符
+PARTNER_EMAIL_ENABLED = {}  # 将在模块末尾动态生成
+PARTNER_EMAIL_MAPPING = {}  # 将在模块末尾动态生成
 
-# Pub收件人映射配置
-PUB_EMAIL_MAPPING = {
-    "OEM2": ["AmosFang927+OEM2@gmail.com"],
-    "OEM3": ["AmosFang927+OEM3@gmail.com"],
-    "RAMPUP": ["amosfang927@gmail.com"],
-    # "RAMPUP": ["max@rampupads.com", "offer@rampupads.com", "bill.zhang@rampupads.com"],
-    "TestPub": ["AmosFang927+TestPub@gmail.com"],
-    # 可以添加更多Pub对应的收件人
-    # "PubName": ["email1@example.com", "email2@example.com"]
-}
+# 保持向后兼容性的别名
+PUB_EMAIL_ENABLED = PARTNER_EMAIL_ENABLED  # 兼容性别名
+PUB_EMAIL_MAPPING = PARTNER_EMAIL_MAPPING   # 兼容性别名
 
 # =============================================================================
 # 定时任务配置
@@ -127,6 +148,88 @@ LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 # =============================================================================
 # 辅助函数
 # =============================================================================
+def get_partner_filename(partner_name, start_date, end_date):
+    """生成Partner报告文件名"""
+    return PARTNER_REPORT_TEMPLATE.format(
+        partner=partner_name,
+        start_date=start_date,
+        end_date=end_date
+    )
+
+def get_sources_for_partner(partner_name):
+    """获取Partner对应的Sources列表"""
+    partner_config = PARTNER_SOURCES_MAPPING.get(partner_name, {})
+    return partner_config.get('sources', [])
+
+def get_pattern_for_partner(partner_name):
+    """获取Partner对应的正则表达式模式"""
+    partner_config = PARTNER_SOURCES_MAPPING.get(partner_name, {})
+    return partner_config.get('pattern', '')
+
+def match_source_to_partner(source_name):
+    """将Source映射到对应的Partner"""
+    import re
+    for partner, config in PARTNER_SOURCES_MAPPING.items():
+        # 先检查sources列表
+        if source_name in config.get('sources', []):
+            return partner
+        # 再检查正则表达式模式
+        pattern = config.get('pattern', '')
+        if pattern and re.match(pattern, source_name):
+            return partner
+    # 如果没有匹配到，返回原始source_name作为partner
+    return source_name
+
+def get_partner_email_config(partner_name):
+    """获取Partner的邮件配置"""
+    partner_config = PARTNER_SOURCES_MAPPING.get(partner_name, {})
+    return {
+        'enabled': partner_config.get('email_enabled', False),
+        'recipients': partner_config.get('email_recipients', [])
+    }
+
+def get_all_partner_email_enabled():
+    """获取所有Partner的邮件开关配置（向后兼容性）"""
+    return {partner: config.get('email_enabled', False) 
+            for partner, config in PARTNER_SOURCES_MAPPING.items()}
+
+def get_all_partner_email_mapping():
+    """获取所有Partner的收件人映射（向后兼容性）"""
+    return {partner: config.get('email_recipients', []) 
+            for partner, config in PARTNER_SOURCES_MAPPING.items()}
+
+def get_target_partners():
+    """获取要处理的Partner列表"""
+    if TARGET_PARTNER is None:
+        return list(PARTNER_SOURCES_MAPPING.keys())
+    elif isinstance(TARGET_PARTNER, list):
+        # 处理列表格式的TARGET_PARTNER
+        valid_partners = []
+        for partner in TARGET_PARTNER:
+            if partner in PARTNER_SOURCES_MAPPING:
+                valid_partners.append(partner)
+            else:
+                print(f"⚠️ 警告: 指定的Partner '{partner}' 不存在，跳过")
+        
+        if not valid_partners:
+            print("⚠️ 警告: 所有指定的Partner都不存在，将处理所有Partner")
+            return list(PARTNER_SOURCES_MAPPING.keys())
+        return valid_partners
+    elif TARGET_PARTNER in PARTNER_SOURCES_MAPPING:
+        return [TARGET_PARTNER]
+    else:
+        print(f"⚠️ 警告: 指定的Partner '{TARGET_PARTNER}' 不存在，将处理所有Partner")
+        return list(PARTNER_SOURCES_MAPPING.keys())
+
+def is_partner_enabled(partner_name):
+    """检查Partner是否在处理范围内"""
+    if TARGET_PARTNER is None:
+        return True
+    elif isinstance(TARGET_PARTNER, list):
+        return partner_name in TARGET_PARTNER
+    else:
+        return TARGET_PARTNER == partner_name
+
 def get_default_date_range():
     """获取默认日期范围"""
     # 如果设置了全局日期，使用全局设置
@@ -150,12 +253,12 @@ def get_default_date_range():
     return yesterday.strftime("%Y-%m-%d"), yesterday.strftime("%Y-%m-%d")
 
 def get_output_filename(date_str=None):
-    """生成输出文件名"""
+    """生成输出文件名（兼容性保留）"""
     if date_str is None:
         # 使用默认日期范围的结束日期作为文件名日期
-        _, end_date = get_default_date_range()
-        date_str = end_date
-    return FILE_NAME_TEMPLATE.format(date=date_str)
+        start_date, end_date = get_default_date_range()
+        return get_partner_filename("UnknownPartner", start_date, end_date)
+    return get_partner_filename("UnknownPartner", date_str, date_str)
 
 def get_json_filename():
     """生成JSON文件名"""
@@ -178,3 +281,14 @@ def get_env_config():
         'api_key': os.getenv('INVOLVE_ASIA_API_KEY', INVOLVE_ASIA_API_KEY),
         'preferred_currency': os.getenv('PREFERRED_CURRENCY', PREFERRED_CURRENCY)
     } 
+
+# =============================================================================
+# 动态配置生成（在所有函数定义完成后执行）
+# =============================================================================
+# 从 PARTNER_SOURCES_MAPPING 动态生成邮件配置
+PARTNER_EMAIL_ENABLED.update(get_all_partner_email_enabled())
+PARTNER_EMAIL_MAPPING.update(get_all_partner_email_mapping())
+
+# 更新向后兼容性别名
+PUB_EMAIL_ENABLED = PARTNER_EMAIL_ENABLED
+PUB_EMAIL_MAPPING = PARTNER_EMAIL_MAPPING

@@ -114,7 +114,7 @@ Conversion Report - 2025-06-18
 - **签名**：AutoReporter Agent
 
 ### 附件
-- 主报告：`Pub_WeeklyReport_YYYY-MM-DD.xlsx`
+- 主报告：`Pub_ConversionReport_YYYY-MM-DD.xlsx`
 - Pub分类报告：`PubName_ConversionReport_YYYY-MM-DD.xlsx`
 
 ## 🔧 故障排除

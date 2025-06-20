@@ -69,11 +69,11 @@ python test_feishu_upload.py
 
 以下类型的Excel文件会被上传：
 
-1. **主报告文件**: `Pub_WeeklyReport_YYYY-MM-DD.xlsx`
+1. **主报告文件**: `Pub_ConversionReport_YYYY-MM-DD.xlsx`
 2. **Pub分类文件**: `{Pub名称}_ConversionReport_YYYY-MM-DD.xlsx`
 
 例如：
-- `Pub_WeeklyReport_2025-01-18.xlsx` (主报告)
+- `Pub_ConversionReport_2025-01-18.xlsx` (主报告)
 - `OEM3_ConversionReport_2025-01-18.xlsx` (OEM3的分类报告)
 - `OEM2_ConversionReport_2025-01-18.xlsx` (OEM2的分类报告)
 
@@ -84,7 +84,7 @@ python test_feishu_upload.py
 ```
 ✅ 飞书上传完成: 成功上传 4 个文件到飞书
 📄 成功上传的文件:
-   ✅ Pub_WeeklyReport_2025-01-18.xlsx
+   ✅ Pub_ConversionReport_2025-01-18.xlsx
       - 文件ID: doccnxxxxxxxxxx
       - 访问链接: https://example.feishu.cn/sheets/shtcnxxxxxxxxxx
    ✅ OEM3_ConversionReport_2025-01-18.xlsx

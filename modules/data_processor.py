@@ -23,14 +23,16 @@ class DataProcessor:
         self.pub_summary = {}
         self.report_date = None
     
-    def process_data(self, data_source, output_dir=None, report_date=None):
+    def process_data(self, data_source, output_dir=None, report_date=None, start_date=None, end_date=None):
         """
         完整的数据处理流程
         
         Args:
             data_source: 数据源（DataFrame、Excel文件路径或JSON数据）
             output_dir: 输出目录，默认使用config.OUTPUT_DIR
-            report_date: 报告日期，用于文件名，默认使用当前日期
+            report_date: 报告日期，用于文件名，默认使用当前日期（向后兼容）
+            start_date: 开始日期，用于文件名生成
+            end_date: 结束日期，用于文件名生成
         
         Returns:
             dict: 处理结果摘要
@@ -40,9 +42,13 @@ class DataProcessor:
         if output_dir is None:
             output_dir = config.OUTPUT_DIR
         
-        # 设置报告日期
+        # 设置报告日期范围
         if report_date:
             self.report_date = report_date
+        if start_date:
+            self.start_date = start_date
+        if end_date:
+            self.end_date = end_date
         
         # 步骤1: 加载数据
         self._load_data(data_source)
@@ -164,51 +170,140 @@ class DataProcessor:
         self.total_sale_amount = adjusted_total
     
     def _export_by_pub(self, output_dir):
-        """按Pub分类导出Excel文件"""
-        print_step("Pub分类导出", "正在按aff_sub1 (Pub) 字段分类导出...")
+        """按Partner分类导出Excel文件，每个Partner包含多个Sources作为Sheets"""
+        print_step("Partner分类导出", "正在按Partner分类导出，每个Partner包含多个Sources作为Sheets...")
         
         if 'aff_sub1' not in self.processed_data.columns:
-            print_step("分类导出警告", "aff_sub1 (Pub) 栏位不存在，跳过分类导出")
+            print_step("分类导出警告", "aff_sub1 (Source) 栏位不存在，跳过分类导出")
             return []
         
-        # 获取所有唯一的Pub值
-        unique_pubs = self.processed_data['aff_sub1'].dropna().unique()
-        print_step("Pub统计", f"发现 {len(unique_pubs)} 个不同的Pub: {list(unique_pubs)}")
+        # 获取所有唯一的Source值（aff_sub1）
+        unique_sources = self.processed_data['aff_sub1'].dropna().unique()
+        print_step("Source统计", f"发现 {len(unique_sources)} 个不同的Source: {list(unique_sources)}")
         
-        pub_files = []
-        # 使用查询的日期作为文件名日期，如果没有则使用当前日期
-        report_date = getattr(self, 'report_date', datetime.now().strftime("%Y-%m-%d"))
+        # 按Partner分组Sources
+        partner_sources_map = {}
+        for source in unique_sources:
+            partner = config.match_source_to_partner(source)
+            if partner not in partner_sources_map:
+                partner_sources_map[partner] = []
+            partner_sources_map[partner].append(source)
+        
+        print_step("Partner映射", f"映射结果: {partner_sources_map}")
+        
+        partner_files = []
+        # 确定文件名的日期范围
+        if hasattr(self, 'start_date') and hasattr(self, 'end_date') and self.start_date and self.end_date:
+            # 使用真实的日期范围
+            start_date = self.start_date
+            end_date = self.end_date
+        elif hasattr(self, 'report_date') and self.report_date:
+            # 向后兼容：使用单个报告日期
+            start_date = self.report_date
+            end_date = self.report_date
+        else:
+            # 默认使用当前日期
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = current_date
+            end_date = current_date
         
         # 确保输出目录存在
         os.makedirs(output_dir, exist_ok=True)
         
-        for pub in unique_pubs:
-            # 过滤该Pub的数据
-            pub_data = self.processed_data[self.processed_data['aff_sub1'] == pub].copy()
-            
-            # 生成文件名
-            safe_pub_name = str(pub).replace('/', '_').replace('\\', '_').replace('?', '_').replace('*', '_')
-            filename = f"{safe_pub_name}_ConversionReport_{report_date}.xlsx"
-            filepath = os.path.join(output_dir, filename)
-            
-            # 导出Excel并设置货币格式
-            self._export_excel_with_currency_format(pub_data, filepath)
-            
-            # 统计信息
-            pub_total = pub_data['sale_amount'].sum() if 'sale_amount' in pub_data.columns else 0
-            self.pub_summary[pub] = {
-                'records': len(pub_data),
-                'total_amount': pub_total,
-                'amount_formatted': f"${pub_total:,.2f}",
-                'filename': filename
-            }
-            
-            pub_files.append(filepath)
-            
-            print_step("Pub导出", f"Pub '{pub}': {len(pub_data)} 条记录，总金额 ${pub_total:,.2f} → {filename}")
+        for partner, sources_list in partner_sources_map.items():
+            # 检查是否在目标Partner列表中
+            if not config.is_partner_enabled(partner):
+                print_step("Partner跳过", f"跳过Partner '{partner}' (不在处理范围内)")
+                continue
+                
+            try:
+                # 生成Partner文件名
+                filename = config.get_partner_filename(partner, start_date, end_date)
+                filepath = os.path.join(output_dir, filename)
+                
+                # 创建Excel工作簿，包含多个Sources作为Sheets
+                self._create_partner_excel_with_sources(partner, sources_list, filepath)
+                
+                # 统计Partner总信息
+                partner_data = self.processed_data[self.processed_data['aff_sub1'].isin(sources_list)]
+                partner_total = partner_data['sale_amount'].sum() if 'sale_amount' in partner_data.columns else 0
+                
+                self.pub_summary[partner] = {
+                    'records': len(partner_data),
+                    'total_amount': partner_total,
+                    'amount_formatted': f"${partner_total:,.2f}",
+                    'filename': filename,
+                    'sources': sources_list,
+                    'sources_count': len(sources_list)
+                }
+                
+                partner_files.append(filepath)
+                
+                print_step("Partner导出", f"Partner '{partner}': {len(sources_list)} 个Sources, {len(partner_data)} 条记录，总金额 ${partner_total:,.2f} → {filename}")
+                
+            except Exception as e:
+                print_step("Partner导出错误", f"❌ Partner '{partner}' 导出失败: {str(e)}")
+                continue
         
-        print_step("分类导出完成", f"成功生成 {len(pub_files)} 个Pub分类文件")
-        return pub_files
+        print_step("分类导出完成", f"成功生成 {len(partner_files)} 个Partner分类文件")
+        return partner_files
+    
+    def _create_partner_excel_with_sources(self, partner, sources_list, filepath):
+        """
+        创建Partner Excel文件，包含多个Sources作为不同的Sheets
+        
+        Args:
+            partner: Partner名称
+            sources_list: 该Partner下的Sources列表
+            filepath: 输出文件路径
+        """
+        from openpyxl import Workbook
+        from openpyxl.utils.dataframe import dataframe_to_rows
+        
+        # 创建工作簿
+        wb = Workbook()
+        # 删除默认的工作表
+        wb.remove(wb.active)
+        
+        # 为每个Source创建一个Sheet
+        for source in sources_list:
+            # 过滤该Source的数据
+            source_data = self.processed_data[self.processed_data['aff_sub1'] == source].copy()
+            
+            if len(source_data) == 0:
+                print_step("Sheet创建", f"⚠️ Source '{source}' 没有数据，跳过创建Sheet")
+                continue
+            
+            # 创建工作表，使用Source名称作为Sheet名（限制长度）
+            safe_sheet_name = str(source).replace('/', '_').replace('\\', '_').replace('?', '_').replace('*', '_')[:31]  # Excel Sheet名称限制31字符
+            ws = wb.create_sheet(title=safe_sheet_name)
+            
+            # 写入数据（包含标题行）
+            for r in dataframe_to_rows(source_data, index=False, header=True):
+                ws.append(r)
+            
+            # 查找sale_amount列的索引并应用货币格式
+            if 'sale_amount' in source_data.columns:
+                sale_amount_col = source_data.columns.get_loc('sale_amount') + 1  # Excel列索引从1开始
+                
+                # 应用货币格式到sale_amount列（跳过标题行）
+                for row in range(2, len(source_data) + 2):  # 从第2行开始（第1行是标题）
+                    cell = ws.cell(row=row, column=sale_amount_col)
+                    cell.number_format = '"$"#,##0.00'
+            
+            print_step("Sheet创建", f"✅ 已创建Sheet '{safe_sheet_name}' ({len(source_data)} 条记录)")
+        
+        # 检查是否有任何Sheet被创建
+        if len(wb.worksheets) == 0:
+            # 如果没有Sheet，创建一个空的Sheet
+            ws = wb.create_sheet(title="No_Data")
+            ws.append(["Partner", "Message"])
+            ws.append([partner, "No data available"])
+            print_step("Sheet创建", f"⚠️ Partner '{partner}' 没有任何数据，创建空Sheet")
+        
+        # 保存文件
+        wb.save(filepath)
+        print_step("Excel保存", f"✅ Partner Excel文件已保存: {filepath} (包含 {len(wb.worksheets)} 个Sheets)")
     
     def _generate_summary(self, pub_files, output_dir):
         """生成处理结果摘要"""
@@ -221,49 +316,15 @@ class DataProcessor:
             'total_sale_amount': self.total_sale_amount,
             'mockup_multiplier': config.MOCKUP_MULTIPLIER,
             'removed_columns': config.REMOVE_COLUMNS,
+            'partner_count': len(self.pub_summary),
             'pub_count': len(self.pub_summary),
             'pub_files': pub_files,
+            'partner_summary': self.pub_summary,
             'pub_summary': self.pub_summary,
             'output_directory': output_dir
         }
         
         return summary
-    
-    def _export_excel_with_currency_format(self, data, filepath):
-        """
-        导出Excel并为sale_amount栏位设置美元货币格式
-        
-        Args:
-            data: 要导出的DataFrame
-            filepath: 输出文件路径
-        """
-        # 创建工作簿和工作表
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Conversion Report"
-        
-        # 写入数据（包含标题行）
-        for r in dataframe_to_rows(data, index=False, header=True):
-            ws.append(r)
-        
-        # 查找sale_amount列的索引
-        sale_amount_col = None
-        if 'sale_amount' in data.columns:
-            sale_amount_col = data.columns.get_loc('sale_amount') + 1  # Excel列索引从1开始
-        
-        if sale_amount_col:
-            # 创建货币格式样式
-            currency_style = NamedStyle(name="currency_usd")
-            currency_style.number_format = '"$"#,##0.00'
-            
-            # 应用货币格式到sale_amount列（跳过标题行）
-            for row in range(2, len(data) + 2):  # 从第2行开始（第1行是标题）
-                cell = ws.cell(row=row, column=sale_amount_col)
-                cell.number_format = '"$"#,##0.00'
-        
-        # 保存文件
-        wb.save(filepath)
-        print_step("货币格式", f"已为 {filepath} 设置美元货币格式")
     
     def print_detailed_summary(self, summary):
         """打印详细的处理摘要"""
