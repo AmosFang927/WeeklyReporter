@@ -4,6 +4,11 @@ WeeklyReporter 全局配置文件
 包含API配置、文件配置、日志配置等
 """
 
+# WeeklyReporter 配置文件
+# 版本: 2.0.1 - 修复邮件总金额计算bug (2025-06-20)
+# 本次更新修复了Partner邮件中总金额只计算第一个sheet的问题
+# 现在正确计算所有sheets的金额总和
+
 import os
 from datetime import datetime, timedelta
 
