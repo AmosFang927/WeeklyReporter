@@ -238,26 +238,46 @@ class EmailSender:
         }
     
     def _calculate_sales_amount_from_excel(self, file_path):
-        """从Excel文件中计算Sales Amount总额"""
+        """从Excel文件中计算Sales Amount总额（包含所有sheets）"""
         try:
             if not file_path or not os.path.exists(file_path):
                 print_step("金额计算", f"⚠️ 文件不存在: {file_path}")
                 return '$0.00'
             
-            # 读取Excel文件
-            df = pd.read_excel(file_path)
-            print_step("金额计算", f"📊 正在计算 {os.path.basename(file_path)} 的销售总额...")
+            import openpyxl
             
-            # 查找sale_amount列
-            if 'sale_amount' in df.columns:
-                # 计算总额
-                total = df['sale_amount'].sum()
-                formatted_amount = f"${total:.2f}"
-                print_step("金额计算", f"💰 {os.path.basename(file_path)} 销售总额: {formatted_amount}")
-                return formatted_amount
-            else:
-                print_step("金额计算", f"⚠️ 未找到sale_amount列在文件 {os.path.basename(file_path)}")
-                return '$0.00'
+            # 使用openpyxl读取所有sheets
+            wb = openpyxl.load_workbook(file_path, read_only=True)
+            total_amount = 0.0
+            sheet_details = []
+            
+            print_step("金额计算", f"📊 正在计算 {os.path.basename(file_path)} 的销售总额（包含所有sheets）...")
+            
+            for sheet_name in wb.sheetnames:
+                try:
+                    # 读取该sheet的数据
+                    df = pd.read_excel(file_path, sheet_name=sheet_name)
+                    
+                    if 'sale_amount' in df.columns and len(df) > 0:
+                        sheet_total = df['sale_amount'].sum()
+                        total_amount += sheet_total
+                        sheet_details.append(f"  - {sheet_name}: ${sheet_total:.2f}")
+                        print_step("金额计算", f"📋 Sheet '{sheet_name}': ${sheet_total:.2f} ({len(df)} 条记录)")
+                    else:
+                        sheet_details.append(f"  - {sheet_name}: $0.00 (无数据或无sale_amount列)")
+                        print_step("金额计算", f"⚠️ Sheet '{sheet_name}': 无sale_amount列或无数据")
+                
+                except Exception as e:
+                    print_step("金额计算", f"⚠️ 处理Sheet '{sheet_name}' 失败: {str(e)}")
+                    sheet_details.append(f"  - {sheet_name}: 计算失败")
+            
+            wb.close()
+            
+            formatted_amount = f"${total_amount:.2f}"
+            print_step("金额计算", f"💰 {os.path.basename(file_path)} 总销售额: {formatted_amount}")
+            print_step("金额详情", f"各Sheet明细:\n" + "\n".join(sheet_details))
+            
+            return formatted_amount
                 
         except Exception as e:
             print_step("金额计算", f"❌ 计算金额失败 {os.path.basename(file_path)}: {str(e)}")
