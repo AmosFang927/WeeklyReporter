@@ -5,6 +5,8 @@ WeeklyReporter 日志工具
 """
 
 import logging
+import sys
+import os
 from datetime import datetime
 from config import LOG_LEVEL, LOG_FORMAT, LOG_TIMESTAMP_FORMAT
 
@@ -14,6 +16,20 @@ class WeeklyReporterLogger:
     def __init__(self, name="WeeklyReporter"):
         self.logger = logging.getLogger(name)
         self.setup_logger()
+        # 确保在容器环境中输出不被缓冲
+        self._configure_stdout()
+    
+    def _configure_stdout(self):
+        """配置标准输出以确保在容器环境中正确显示"""
+        try:
+            # 检查是否在Cloud Run环境中
+            if os.getenv('K_SERVICE'):
+                # 在Cloud Run中，确保输出不被缓冲
+                sys.stdout.reconfigure(line_buffering=True)
+                sys.stderr.reconfigure(line_buffering=True)
+        except Exception:
+            # 如果配置失败，继续运行
+            pass
     
     def setup_logger(self):
         """设置日志记录器"""
@@ -24,7 +40,7 @@ class WeeklyReporterLogger:
         # 避免重复添加handler
         if not self.logger.handlers:
             # 创建控制台处理器
-            console_handler = logging.StreamHandler()
+            console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(level)
             
             # 设置格式
@@ -42,6 +58,7 @@ class WeeklyReporterLogger:
         timestamp = datetime.now().strftime(LOG_TIMESTAMP_FORMAT)
         formatted_message = f"[{timestamp}] {step_name}: {message}"
         print(formatted_message)
+        sys.stdout.flush()  # 强制刷新输出
         
         # 同时记录到日志系统
         log_method = getattr(self.logger, level.lower(), self.logger.info)
@@ -50,22 +67,27 @@ class WeeklyReporterLogger:
     def info(self, message):
         """信息日志"""
         self.logger.info(message)
+        sys.stdout.flush()
     
     def warning(self, message):
         """警告日志"""
         self.logger.warning(message)
+        sys.stdout.flush()
     
     def error(self, message):
         """错误日志"""
         self.logger.error(message)
+        sys.stderr.flush()
     
     def debug(self, message):
         """调试日志"""
         self.logger.debug(message)
+        sys.stdout.flush()
     
     def critical(self, message):
         """严重错误日志"""
         self.logger.critical(message)
+        sys.stderr.flush()
 
 # 创建全局日志实例
 logger = WeeklyReporterLogger()

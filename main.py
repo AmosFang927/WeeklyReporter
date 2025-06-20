@@ -491,11 +491,18 @@ def create_parser():
 
 def main():
     """主函数"""
+    # 确保在容器环境中输出不被缓冲
+    import sys
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+    
     print("🚀 WeeklyReporter - Involve Asia数据处理工具")
     print("=" * 60)
     print(f"⏰ 启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"📂 输出目录: {config.OUTPUT_DIR}")
+    print(f"🌐 运行环境: {'Cloud Run' if os.getenv('K_SERVICE') else 'Local'}")
     print("=" * 60)
+    sys.stdout.flush()  # 强制刷新输出
     
     # 解析命令行参数
     parser = create_parser()

@@ -58,14 +58,14 @@ PARTNER_SOURCES_MAPPING = {
         "sources": ["RAMPUP"],  # RAMPUP, RPIDxxx... 等以RAMPUP或RPID开头的
         "pattern": r"^(RAMPUP|RPID.*)",  # 正则表达式匹配模式
         "email_enabled": True,  # 邮件发送开关
-        "email_recipients": ["amosfang927@gmail.com"]  # 收件人列表
-        # "email_recipients": ["max@rampupads.com", "offer@rampupads.com", "bill.zhang@rampupads.com"]
+        #"email_recipients": ["amosfang927@gmail.com"]  # 收件人列表
+        "email_recipients": ["max@rampupads.com", "offer@rampupads.com", "bill.zhang@rampupads.com"]
     },
     "YueMeng": {
         "sources": ["OPPO", "VIVO", "OEM2", "OEM3"],  # 包含OPPO、VIVO、OEM2、OEM3
         "pattern": r"^(OPPO|VIVO|OEM2|OEM3)$",  # 匹配OPPO、VIVO、OEM2、OEM3
         "email_enabled": True,  # 邮件发送开关
-        "email_recipients": ["AmosFang927@gmail.com"]  # 收件人列表
+        "email_recipients": ["sunjiakuo@deepleaper.com"]  # 收件人列表
     },
     "TestPartner": {
         "sources": ["TestPartner"],

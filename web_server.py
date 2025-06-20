@@ -3,6 +3,7 @@ from datetime import datetime
 import subprocess
 import threading
 import os
+import sys
 
 app = Flask(__name__)
 
@@ -66,14 +67,42 @@ def run_weekly_reporter():
         # 添加布尔选项（main.py中默认都是启用的，所以这里不需要特别处理）
         # save_json, upload_feishu, send_email 在main.py中默认启用
         
+        # 确保Python输出不被缓冲
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+        
         def run_in_background():
             try:
-                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-                print(f"✅ WeeklyReporter执行成功")
-                print(f"输出: {result.stdout}")
+                print(f"🚀 [Cloud Scheduler] 开始执行WeeklyReporter任务")
+                print(f"📋 [Cloud Scheduler] 执行命令: {' '.join(cmd)}")
+                print(f"📋 [Cloud Scheduler] 执行参数: {data}")
+                sys.stdout.flush()  # 强制刷新输出
+                
+                # 修改subprocess调用，让输出直接显示在标准输出中
+                result = subprocess.run(
+                    cmd, 
+                    check=True, 
+                    text=True,
+                    env=env,
+                    # 不捕获输出，让它直接显示在console中
+                    stdout=None,  # 输出到标准输出
+                    stderr=None   # 错误到标准错误
+                )
+                
+                print(f"✅ [Cloud Scheduler] WeeklyReporter执行成功")
+                sys.stdout.flush()
+                
             except subprocess.CalledProcessError as e:
-                print(f"❌ WeeklyReporter执行失败: {e}")
-                print(f"错误输出: {e.stderr}")
+                print(f"❌ [Cloud Scheduler] WeeklyReporter执行失败: {e}")
+                print(f"❌ [Cloud Scheduler] 返回码: {e.returncode}")
+                sys.stdout.flush()
+            except Exception as e:
+                print(f"❌ [Cloud Scheduler] 执行异常: {str(e)}")
+                sys.stdout.flush()
+        
+        # 立即返回响应，同时启动后台任务
+        print(f"📨 [Cloud Scheduler] 收到调度请求: {data}")
+        sys.stdout.flush()
         
         thread = threading.Thread(target=run_in_background)
         thread.start()
@@ -98,6 +127,9 @@ def run_weekly_reporter():
         
         return jsonify(response)
     except Exception as e:
+        error_msg = f"❌ [Cloud Scheduler] 请求处理失败: {str(e)}"
+        print(error_msg)
+        sys.stdout.flush()
         return jsonify({
             "status": "error",
             "message": str(e),
@@ -146,6 +178,46 @@ def test_endpoint():
         },
         "timestamp": datetime.now().isoformat()
     })
+
+@app.route("/test-logging", methods=["GET", "POST"])
+def test_logging():
+    """测试日志输出端点 - 用于验证Cloud Run日志是否正常显示"""
+    try:
+        print(f"🧪 [Test] 开始测试日志输出")
+        print(f"⏰ [Test] 测试时间: {datetime.now().isoformat()}")
+        
+        # 检查环境
+        is_cloud_run = os.getenv('K_SERVICE') is not None
+        print(f"🌐 [Test] 运行环境: {'Cloud Run' if is_cloud_run else 'Local'}")
+        sys.stdout.flush()
+        
+        # 测试不同类型的输出
+        for i in range(3):
+            print(f"📝 [Test] 输出测试 {i+1}/3")
+            sys.stdout.flush()
+        
+        # 测试错误输出
+        print("❌ [Test] 这是一个测试错误输出", file=sys.stderr)
+        sys.stderr.flush()
+        
+        print(f"✅ [Test] 日志测试完成")
+        sys.stdout.flush()
+        
+        return jsonify({
+            "status": "success",
+            "message": "日志测试完成，请检查Cloud Run日志查看输出",
+            "timestamp": datetime.now().isoformat(),
+            "environment": "Cloud Run" if is_cloud_run else "Local"
+        })
+    except Exception as e:
+        error_msg = f"❌ [Test] 日志测试失败: {str(e)}"
+        print(error_msg)
+        sys.stdout.flush()
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
