@@ -1,7 +1,9 @@
-name: Deploy WeeklyReporter to GCP Cloud Run (Simplified)
+name: Deploy WeeklyReporter to GCP Cloud Run
 
 on:
   push:
+    branches: [ main ]
+  pull_request:
     branches: [ main ]
   workflow_dispatch:  # 允许手动触发
 
@@ -9,11 +11,49 @@ env:
   PROJECT_ID: solar-idea-463423-h8
   SERVICE_ACCOUNT: weeklyreporter@solar-idea-463423-h8.iam.gserviceaccount.com
   REGION: asia-east1
-  IMAGE: asia-east1-docker.pkg.dev/solar-idea-463423-h8/weeklyreporter/app:latest
+  SERVICE_NAME: weeklyreporter
+  IMAGE: asia-east1-docker.pkg.dev/solar-idea-463423-h8/weeklyreporter/app
 
 jobs:
-  build-deploy:
+  # 代码质量检查和测试
+  test:
     runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest flake8
+
+    - name: Run code quality checks
+      run: |
+        echo "🔍 运行代码质量检查..."
+        # 检查 Python 语法
+        python -m py_compile main.py config.py
+        python -m py_compile modules/*.py
+        echo "✅ Python 语法检查通过"
+
+    - name: Run basic tests
+      run: |
+        echo "🧪 运行基础测试..."
+        python -c "import main; print('✅ Main module import successful')"
+        python -c "import config; print('✅ Config module import successful')"
+        echo "✅ 基础测试完成"
+
+  # 构建和部署 (仅在 main 分支)
+  build-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
     - name: Checkout code
@@ -37,6 +77,7 @@ jobs:
         echo "Service Account: ${{ env.SERVICE_ACCOUNT }}"
         echo "区域: ${{ env.REGION }}"
         echo "镜像: ${{ env.IMAGE }}"
+        echo "SHA: ${{ github.sha }}"
         echo ""
         echo "🔍 当前认证状态:"
         gcloud auth list
@@ -60,20 +101,31 @@ jobs:
     - name: Build Docker Image
       run: |
         echo "🏗️ 构建 Docker 镜像..."
-        docker build -f Dockerfile.cloudrun -t ${{ env.IMAGE }} .
+        IMAGE_TAG="${{ env.IMAGE }}:${{ github.sha }}"
+        IMAGE_LATEST="${{ env.IMAGE }}:latest"
+        
+        docker build -f Dockerfile.cloudrun \
+          -t $IMAGE_TAG \
+          -t $IMAGE_LATEST \
+          --build-arg GIT_SHA=${{ github.sha }} \
+          .
+        
         echo "✅ 镜像构建完成"
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        echo "IMAGE_LATEST=$IMAGE_LATEST" >> $GITHUB_ENV
 
     - name: Push Docker Image
       run: |
         echo "📤 推送镜像到 Artifact Registry..."
-        docker push ${{ env.IMAGE }}
+        docker push ${{ env.IMAGE_TAG }}
+        docker push ${{ env.IMAGE_LATEST }}
         echo "✅ 镜像推送完成"
 
     - name: Deploy to Cloud Run
       run: |
         echo "🚀 部署到 Cloud Run..."
-        gcloud run deploy weeklyreporter \
-          --image ${{ env.IMAGE }} \
+        gcloud run deploy ${{ env.SERVICE_NAME }} \
+          --image ${{ env.IMAGE_TAG }} \
           --platform managed \
           --region ${{ env.REGION }} \
           --allow-unauthenticated \
@@ -81,28 +133,113 @@ jobs:
           --memory 1Gi \
           --cpu 1 \
           --timeout 3600 \
-          --max-instances 1 \
+          --max-instances 3 \
+          --min-instances 0 \
           --service-account ${{ env.SERVICE_ACCOUNT }} \
-          --set-env-vars TZ=Asia/Shanghai \
+          --set-env-vars "TZ=Asia/Shanghai,GIT_SHA=${{ github.sha }},DEPLOY_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          --tag sha-${{ github.sha }} \
           --quiet
         echo "✅ 部署完成"
 
-    - name: Get Service Info
+    - name: Get Service Info and Health Check
       run: |
         echo "📊 获取服务信息..."
-        SERVICE_URL=$(gcloud run services describe weeklyreporter \
+        SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
           --platform managed \
           --region ${{ env.REGION }} \
-          --format 'value(status.url)' || echo "Service not found")
+          --format 'value(status.url)')
         
         echo ""
         echo "🎉 部署结果:"
         echo "🔗 Service URL: $SERVICE_URL"
+        echo "🏷️  Image Tag: ${{ env.IMAGE_TAG }}"
+        echo "🔄 Git SHA: ${{ github.sha }}"
         
-        if [ "$SERVICE_URL" != "Service not found" ]; then
-          echo "📝 健康检查: curl $SERVICE_URL/health"
-          echo "📝 状态检查: curl $SERVICE_URL/status"
-          echo "📝 手动触发: curl -X POST $SERVICE_URL/run"
+        # 健康检查
+        echo ""
+        echo "🏥 执行健康检查..."
+        sleep 10  # 等待服务启动
+        
+        # 检查根路径
+        if curl -f -s "$SERVICE_URL/" > /dev/null; then
+          echo "✅ 根路径健康检查通过"
         else
-          echo "❌ 服务部署可能失败"
-        fi 
+          echo "❌ 根路径健康检查失败"
+        fi
+        
+        # 检查状态端点
+        if curl -f -s "$SERVICE_URL/status" > /dev/null; then
+          echo "✅ 状态端点健康检查通过"
+        else
+          echo "❌ 状态端点健康检查失败"
+        fi
+        
+        echo ""
+        echo "📝 可用端点:"
+        echo "  - 健康检查: curl $SERVICE_URL/"
+        echo "  - 状态检查: curl $SERVICE_URL/status"
+        echo "  - 手动触发: curl -X POST $SERVICE_URL/run"
+
+    - name: Update Traffic to Latest
+      run: |
+        echo "🚦 更新流量到最新版本..."
+        gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
+          --to-latest \
+          --region ${{ env.REGION }} \
+          --quiet
+        echo "✅ 流量更新完成"
+
+    - name: Cleanup Old Revisions
+      run: |
+        echo "🧹 清理旧版本..."
+        # 保留最近的3个版本
+        gcloud run revisions list \
+          --service ${{ env.SERVICE_NAME }} \
+          --region ${{ env.REGION }} \
+          --limit 100 \
+          --sort-by ~metadata.creationTimestamp \
+          --format "value(metadata.name)" | tail -n +4 | while read revision; do
+          if [ ! -z "$revision" ]; then
+            echo "删除旧版本: $revision"
+            gcloud run revisions delete $revision --region ${{ env.REGION }} --quiet || true
+          fi
+        done
+        echo "✅ 清理完成"
+
+  # PR 预览构建 (仅构建，不部署)
+  preview-build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+        service_account: ${{ env.SERVICE_ACCOUNT }}
+
+    - name: Set up Google Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ env.PROJECT_ID }}
+
+    - name: Configure Docker for Artifact Registry
+      run: |
+        gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+    - name: Build Preview Image
+      run: |
+        echo "🏗️ 构建预览镜像 (PR #${{ github.event.number }})..."
+        PREVIEW_TAG="${{ env.IMAGE }}:pr-${{ github.event.number }}-${{ github.sha }}"
+        
+        docker build -f Dockerfile.cloudrun \
+          -t $PREVIEW_TAG \
+          --build-arg GIT_SHA=${{ github.sha }} \
+          .
+        
+        echo "✅ 预览镜像构建完成: $PREVIEW_TAG"
+        echo "ℹ️  注意: 预览镜像已构建但未部署" 

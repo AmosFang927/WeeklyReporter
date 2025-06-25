@@ -1,9 +1,22 @@
 FROM python:3.11-slim
 
+# 构建参数
+ARG GIT_SHA=unknown
+ARG BUILD_DATE
+ARG VERSION=latest
+
+# 设置标签
+LABEL org.opencontainers.image.source="https://github.com/AmosFang927/WeeklyReporter"
+LABEL org.opencontainers.image.description="WeeklyReporter - Involve Asia数据获取和Excel转换工具"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+
 WORKDIR /app
 
 # 设置环境变量确保Python输出不被缓冲
 ENV PYTHONUNBUFFERED=1
+ENV GIT_SHA=${GIT_SHA}
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -19,8 +32,17 @@ RUN pip install flask gunicorn
 
 COPY . .
 
+# 创建非root用户
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN chown -R appuser:appuser /app
+USER appuser
+
 # 暴露端口
 EXPOSE 8080
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8080/ || exit 1
 
 # 使用gunicorn运行Web服务
 CMD exec gunicorn --bind :8080 --workers 1 --threads 8 --timeout 0 web_server:app 
