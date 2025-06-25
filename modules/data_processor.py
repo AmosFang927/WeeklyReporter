@@ -274,13 +274,15 @@ class DataProcessor:
                 print_step("Sheet创建", f"⚠️ Source '{source}' 没有数据，跳过创建Sheet")
                 continue
             
-            # 创建工作表，使用Source名称作为Sheet名（限制长度）
-            safe_sheet_name = str(source).replace('/', '_').replace('\\', '_').replace('?', '_').replace('*', '_')[:31]  # Excel Sheet名称限制31字符
+            # 创建工作表，使用Source名称作为Sheet名（清理特殊字符并限制长度）
+            safe_sheet_name = self._clean_sheet_name(str(source))
             ws = wb.create_sheet(title=safe_sheet_name)
             
-            # 写入数据（包含标题行）
+            # 写入数据（包含标题行），清理特殊字符
             for r in dataframe_to_rows(source_data, index=False, header=True):
-                ws.append(r)
+                # 清理行中的特殊字符
+                cleaned_row = self._clean_row_data(r)
+                ws.append(cleaned_row)
             
             # 查找sale_amount列的索引并应用货币格式
             if 'sale_amount' in source_data.columns:
@@ -304,6 +306,98 @@ class DataProcessor:
         # 保存文件
         wb.save(filepath)
         print_step("Excel保存", f"✅ Partner Excel文件已保存: {filepath} (包含 {len(wb.worksheets)} 个Sheets)")
+    
+    def _clean_sheet_name(self, name):
+        """
+        清理Excel工作表名称，移除不支持的字符
+        
+        Excel工作表名称限制：
+        - 不能超过31个字符
+        - 不能包含: [ ] : * ? / \\ '
+        - 不能为空或只包含空格
+        - 不能以单引号开头或结尾
+        
+        Args:
+            name: 原始名称
+            
+        Returns:
+            str: 清理后的安全名称
+        """
+        import re
+        
+        if not name or not str(name).strip():
+            return "Unknown"
+        
+        # 转换为字符串并去除前后空格
+        clean_name = str(name).strip()
+        
+        # 移除或替换Excel不支持的字符
+        # 替换路径分隔符
+        clean_name = clean_name.replace('/', '_').replace('\\', '_')
+        # 替换Excel特殊字符
+        clean_name = clean_name.replace('[', '(').replace(']', ')')
+        clean_name = clean_name.replace(':', '-').replace('*', '_')
+        clean_name = clean_name.replace('?', '_').replace('\'', '')
+        
+        # 移除其他可能有问题的Unicode字符，保留基本字母、数字、空格和常见符号
+        # 使用正则表达式保留安全字符
+        clean_name = re.sub(r'[^\w\s\-\(\)\_\.]', '_', clean_name)
+        
+        # 移除多余的空格和下划线
+        clean_name = re.sub(r'\s+', ' ', clean_name)  # 多个空格合并为一个
+        clean_name = re.sub(r'_+', '_', clean_name)   # 多个下划线合并为一个
+        clean_name = clean_name.strip('_').strip()    # 去除开头结尾的下划线和空格
+        
+        # 确保不以单引号开头或结尾
+        clean_name = clean_name.strip('\'')
+        
+        # 限制长度为31个字符
+        if len(clean_name) > 31:
+            clean_name = clean_name[:28] + "..."
+        
+        # 如果清理后为空，使用默认名称
+        if not clean_name:
+            clean_name = "Unknown"
+        
+        return clean_name
+    
+    def _clean_row_data(self, row):
+        """
+        清理行数据中的特殊字符，确保Excel兼容性
+        
+        Args:
+            row: 数据行（列表或元组）
+            
+        Returns:
+            list: 清理后的数据行
+        """
+        import re
+        
+        cleaned_row = []
+        for cell in row:
+            if cell is None:
+                cleaned_row.append(None)
+            elif isinstance(cell, (int, float)):
+                # 数字类型直接保留
+                cleaned_row.append(cell)
+            else:
+                # 字符串类型需要清理
+                cell_str = str(cell)
+                
+                # 移除可能导致Excel问题的控制字符和特殊Unicode字符
+                # 保留基本的ASCII字符、常见Unicode字符
+                cleaned_str = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', cell_str)
+                
+                # 移除可能有问题的Unicode字符（保留基本字母、数字、常见符号）
+                # 这个正则表达式比较宽松，保留大部分字符但移除控制字符
+                cleaned_str = re.sub(r'[^\x20-\x7E\u00A0-\u024F\u1E00-\u1EFF\u2000-\u206F\u20A0-\u20CF\u2100-\u214F]', '_', cleaned_str)
+                
+                # 移除开头的特殊字符（如不可见字符）
+                cleaned_str = cleaned_str.strip()
+                
+                cleaned_row.append(cleaned_str)
+        
+        return cleaned_row
     
     def _generate_summary(self, pub_files, output_dir):
         """生成处理结果摘要"""

@@ -28,10 +28,20 @@ def run_weekly_reporter():
         # 基础参数
         start_date = data.get('start_date')
         end_date = data.get('end_date')
+        days_ago = data.get('days_ago')  # 新增：相对日期参数
         partner = data.get('partner')
         partners = data.get('partners')  # 支持多个partner
         limit = data.get('limit')
         output = data.get('output')
+        
+        # 处理相对日期参数
+        if days_ago is not None:
+            from datetime import datetime, timedelta
+            target_date = (datetime.now() - timedelta(days=int(days_ago))).strftime('%Y-%m-%d')
+            start_date = target_date
+            end_date = target_date
+            print(f"📅 [Cloud Scheduler] 使用相对日期: {days_ago}天前 = {target_date}")
+            sys.stdout.flush()
         
         # 布尔参数
         save_json = data.get('save_json', True)  # 默认保存JSON
@@ -116,6 +126,7 @@ def run_weekly_reporter():
             "parameters": {
                 "start_date": start_date,
                 "end_date": end_date,
+                "days_ago": days_ago,
                 "partner": partner,
                 "partners": partners,
                 "limit": limit,
@@ -152,7 +163,8 @@ def status():
         },
         "supported_parameters": {
             "start_date": "YYYY-MM-DD format",
-            "end_date": "YYYY-MM-DD format", 
+            "end_date": "YYYY-MM-DD format",
+            "days_ago": "Number of days ago (integer, overrides start_date/end_date)",
             "partner": "Single partner name (e.g., 'YueMeng')",
             "partners": "Array of partner names (e.g., ['YueMeng', 'RAMPUP'])",
             "limit": "Maximum number of records (integer)",

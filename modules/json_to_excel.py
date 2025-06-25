@@ -156,9 +156,11 @@ class JSONToExcelConverter:
         ws = wb.active
         ws.title = config.EXCEL_SHEET_NAME
         
-        # 写入数据（包含标题行）
+        # 写入数据（包含标题行），清理特殊字符
         for r in dataframe_to_rows(data, index=False, header=True):
-            ws.append(r)
+            # 清理行中的特殊字符
+            cleaned_row = self._clean_row_data(r)
+            ws.append(cleaned_row)
         
         # 查找sale_amount列的索引
         sale_amount_col = None
@@ -174,6 +176,44 @@ class JSONToExcelConverter:
         
         # 保存文件
         wb.save(filepath)
+    
+    def _clean_row_data(self, row):
+        """
+        清理行数据中的特殊字符，确保Excel兼容性
+        
+        Args:
+            row: 数据行（列表或元组）
+            
+        Returns:
+            list: 清理后的数据行
+        """
+        import re
+        
+        cleaned_row = []
+        for cell in row:
+            if cell is None:
+                cleaned_row.append(None)
+            elif isinstance(cell, (int, float)):
+                # 数字类型直接保留
+                cleaned_row.append(cell)
+            else:
+                # 字符串类型需要清理
+                cell_str = str(cell)
+                
+                # 移除可能导致Excel问题的控制字符和特殊Unicode字符
+                # 保留基本的ASCII字符、常见Unicode字符
+                cleaned_str = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', cell_str)
+                
+                # 移除可能有问题的Unicode字符（保留基本字母、数字、常见符号）
+                # 这个正则表达式比较宽松，保留大部分字符但移除控制字符
+                cleaned_str = re.sub(r'[^\x20-\x7E\u00A0-\u024F\u1E00-\u1EFF\u2000-\u206F\u20A0-\u20CF\u2100-\u214F]', '_', cleaned_str)
+                
+                # 移除开头的特殊字符（如不可见字符）
+                cleaned_str = cleaned_str.strip()
+                
+                cleaned_row.append(cleaned_str)
+        
+        return cleaned_row
     
     def _print_conversion_summary(self, df, original_data, output_path):
         """打印转换结果摘要"""

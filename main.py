@@ -21,8 +21,8 @@ import config
 class WeeklyReporter:
     """周报生成器主类"""
     
-    def __init__(self):
-        self.api_client = InvolveAsiaAPI()
+    def __init__(self, api_secret=None, api_key=None):
+        self.api_client = InvolveAsiaAPI(api_secret=api_secret, api_key=api_key)
         self.converter = JSONToExcelConverter()
         self.data_processor = DataProcessor()
         self.feishu_uploader = FeishuUploader()
@@ -221,9 +221,11 @@ class WeeklyReporter:
         ws = wb.active
         ws.title = config.EXCEL_SHEET_NAME
         
-        # 写入数据（包含标题行）
+        # 写入数据（包含标题行），清理特殊字符
         for r in dataframe_to_rows(cleaned_data, index=False, header=True):
-            ws.append(r)
+            # 清理行中的特殊字符
+            cleaned_row = self._clean_row_data(r)
+            ws.append(cleaned_row)
         
         # 查找sale_amount列的索引并设置货币格式
         if 'sale_amount' in cleaned_data.columns:
@@ -241,6 +243,44 @@ class WeeklyReporter:
         print_step("主Excel完成", f"成功生成清洗后的主Excel文件: {output_path}")
         
         return output_path
+    
+    def _clean_row_data(self, row):
+        """
+        清理行数据中的特殊字符，确保Excel兼容性
+        
+        Args:
+            row: 数据行（列表或元组）
+            
+        Returns:
+            list: 清理后的数据行
+        """
+        import re
+        
+        cleaned_row = []
+        for cell in row:
+            if cell is None:
+                cleaned_row.append(None)
+            elif isinstance(cell, (int, float)):
+                # 数字类型直接保留
+                cleaned_row.append(cell)
+            else:
+                # 字符串类型需要清理
+                cell_str = str(cell)
+                
+                # 移除可能导致Excel问题的控制字符和特殊Unicode字符
+                # 保留基本的ASCII字符、常见Unicode字符
+                cleaned_str = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', cell_str)
+                
+                # 移除可能有问题的Unicode字符（保留基本字母、数字、常见符号）
+                # 这个正则表达式比较宽松，保留大部分字符但移除控制字符
+                cleaned_str = re.sub(r'[^\x20-\x7E\u00A0-\u024F\u1E00-\u1EFF\u2000-\u206F\u20A0-\u20CF\u2100-\u214F]', '_', cleaned_str)
+                
+                # 移除开头的特殊字符（如不可见字符）
+                cleaned_str = cleaned_str.strip()
+                
+                cleaned_row.append(cleaned_str)
+        
+        return cleaned_row
     
     def _prepare_partner_summary_for_email(self, result):
         """准备Partner汇总数据用于邮件发送"""
@@ -396,6 +436,23 @@ class WeeklyReporter:
         
         print(f"   ⏰ 完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
+def get_api_configs():
+    """获取API配置映射"""
+    return {
+        "LisaidWebeye": {
+            "api_secret": "PPoTSymFFxjJu0CXhCrOD0bCpReCjcZNOyEr0BveZm8=",
+            "api_key": "general"
+        },
+        "LisaidByteC": {
+            "api_secret": "boiTXnRgB2B3N7rCictjjti1ufNIzKksSURJHwqtC50=",
+            "api_key": "general"
+        },
+        "IAByteC": {
+            "api_secret": "Q524XgLnQmrIBiOK8ZD2qmgmQDPbuTqx13tBDWd6BT0=",
+            "api_key": "general"
+        }
+    }
+
 def create_parser():
     """创建命令行参数解析器"""
     parser = argparse.ArgumentParser(
@@ -409,6 +466,11 @@ def create_parser():
   # 指定日期范围
   python main.py --start-date 2025-01-01 --end-date 2025-01-07
 
+  # 使用指定的API配置
+  python main.py --api LisaidWebeye
+  python main.py --api LisaidByteC
+  python main.py --api IAByteC
+
   # 限制获取记录数（例如只获取100条记录）
   python main.py --limit 100
 
@@ -418,11 +480,8 @@ def create_parser():
   # 处理多个Partner（例如RAMPUP和YueMeng）
   python main.py --partner RAMPUP,YueMeng
 
-  # 组合使用：限制100条记录，只处理RAMPUP Partner
-  python main.py --limit 100 --partner RAMPUP --start-date 2025-06-17 --end-date 2025-06-18
-
-  # 组合使用：处理多个Partner
-  python main.py --limit 100 --partner RAMPUP,YueMeng --start-date 2025-06-17 --end-date 2025-06-18
+  # 组合使用：指定API和限制记录数
+  python main.py --api LisaidWebeye --limit 100 --partner RAMPUP --start-date 2025-06-17 --end-date 2025-06-18
 
   # 只获取API数据
   python main.py --api-only
@@ -439,9 +498,17 @@ def create_parser():
   # 只上传现有文件到飞书
   python main.py --upload-only
 
+  # 处理数据但不发送邮件
+  python main.py --no-email
+
   # 测试飞书API连接
   python main.py --test-feishu
         ''')
+    
+    # API配置参数
+    api_configs = get_api_configs()
+    parser.add_argument('--api', type=str, choices=list(api_configs.keys()),
+                       help=f'指定API配置，可选: {", ".join(api_configs.keys())}')
     
     # 日期参数
     parser.add_argument('--start-date', type=str, 
@@ -478,6 +545,8 @@ def create_parser():
                        help='测试飞书API连接')
     parser.add_argument('--send-email', action='store_true',
                        help='发送邮件报告')
+    parser.add_argument('--no-email', action='store_true',
+                       help='不发送邮件给任何Partners')
     parser.add_argument('--test-email', action='store_true',
                        help='测试邮件连接')
     parser.add_argument('--start-scheduler', action='store_true',
@@ -508,31 +577,47 @@ def main():
     parser = create_parser()
     args = parser.parse_args()
     
+    # 获取API配置
+    api_secret = None
+    api_key = None
+    if args.api:
+        api_configs = get_api_configs()
+        if args.api in api_configs:
+            api_config = api_configs[args.api]
+            api_secret = api_config['api_secret']
+            api_key = api_config['api_key']
+            print(f"🔑 使用API配置: {args.api}")
+        else:
+            print(f"❌ 未找到API配置: {args.api}")
+            sys.exit(1)
+    else:
+        print("🔑 使用默认API配置")
+    
     # 创建WeeklyReporter实例
-    reporter = WeeklyReporter()
+    reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key)
     
     try:
         if args.test_feishu:
             # 测试飞书连接
-            reporter = WeeklyReporter()
-            success = reporter.feishu_uploader.test_connection()
+            test_reporter = WeeklyReporter()  # 测试功能不需要API配置
+            success = test_reporter.feishu_uploader.test_connection()
             print(f"\n{'✅ 飞书连接测试成功' if success else '❌ 飞书连接测试失败'}")
             sys.exit(0 if success else 1)
             
         elif args.test_email:
             # 测试邮件连接
-            reporter = WeeklyReporter()
-            success = reporter.email_sender.test_connection()
+            test_reporter = WeeklyReporter()  # 测试功能不需要API配置
+            success = test_reporter.email_sender.test_connection()
             print(f"\n{'✅ 邮件连接测试成功' if success else '❌ 邮件连接测试失败'}")
             sys.exit(0 if success else 1)
             
         elif args.start_scheduler:
             # 启动定时任务
-            reporter = WeeklyReporter()
-            reporter.scheduler = ReportScheduler(reporter)
-            reporter.scheduler.start()
+            scheduler_reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key)  # 调度器需要API配置
+            scheduler_reporter.scheduler = ReportScheduler(scheduler_reporter)
+            scheduler_reporter.scheduler.start()
             
-            status = reporter.scheduler.get_status()
+            status = scheduler_reporter.scheduler.get_status()
             print(f"\n✅ 定时任务已启动")
             print(f"📅 执行时间: 每日 {status['daily_time']}")
             print(f"⏰ 下次执行: {status['next_run']}")
@@ -542,14 +627,14 @@ def main():
                 while True:
                     time.sleep(1)
             except KeyboardInterrupt:
-                reporter.scheduler.stop()
+                scheduler_reporter.scheduler.stop()
                 print(f"\n👋 定时任务已停止")
                 sys.exit(0)
                 
         elif args.run_scheduler_now:
             # 立即执行定时任务
-            reporter = WeeklyReporter()
-            scheduler = ReportScheduler(reporter)
+            scheduler_reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key)  # 调度器需要API配置
+            scheduler = ReportScheduler(scheduler_reporter)
             scheduler.run_now()
             sys.exit(0)
             
@@ -575,6 +660,15 @@ def main():
                 print(f"\n❌ 飞书上传失败: {result.get('error', '未知错误')}")
             
         elif args.api_only:
+            # 应用配置参数
+            if args.limit is not None:
+                config.MAX_RECORDS_LIMIT = args.limit
+                print(f"📋 设置最大记录数限制: {args.limit}")
+            
+            if args.partner is not None:
+                config.TARGET_PARTNER = args.partner
+                print(f"📋 设置目标Partner: {args.partner}")
+            
             # 只获取API数据模式
             data = reporter.run_api_only(args.start_date, args.end_date)
             if data:
@@ -592,6 +686,15 @@ def main():
                     target_partners = target_partners[0]  # 单个Partner保持字符串格式
                 print(f"📋 指定处理的Partner: {target_partners}")
             
+            # 确定是否发送邮件
+            should_send_email = True  # 默认发送邮件
+            if args.no_email:
+                should_send_email = False
+                print("📧 已禁用邮件发送 (--no-email)")
+            elif args.send_email:
+                should_send_email = True
+                print("📧 已启用邮件发送 (--send-email)")
+            
             # 完整工作流模式 - 默认执行所有流程
             result = reporter.run_full_workflow(
                 start_date=args.start_date,
@@ -599,7 +702,7 @@ def main():
                 output_filename=args.output,
                 save_json=True,  # 默认保存JSON
                 upload_to_feishu=True,  # 默认上传到飞书
-                send_email=True,  # 默认发送邮件
+                send_email=should_send_email,  # 根据参数决定是否发送邮件
                 max_records=args.limit,  # 数据限制
                 target_partner=target_partners  # Partner过滤（支持单个或多个）
             )
