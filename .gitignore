@@ -1,1 +1,42 @@
- 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Output files (可选 - 如果不想提交输出文件)
+output/*.xlsx
+output/*.json
+
+# Temporary files
+temp/
+*.tmp
+*.log
+
+# Sensitive configuration (如果有敏感信息)
+.env.local
+.env.production
+secrets/
+
+# Test outputs
+test_output/
+individual_test_output/ 

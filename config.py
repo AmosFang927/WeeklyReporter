@@ -70,7 +70,7 @@ PARTNER_SOURCES_MAPPING = {
         "sources": ["OPPO", "VIVO", "OEM2", "OEM3"],  # 包含OPPO、VIVO、OEM2、OEM3
         "pattern": r"^(OPPO|VIVO|OEM2|OEM3).*",  # 匹配以OPPO、VIVO、OEM2、OEM3开头的所有Sources
         "email_enabled": True,  # 邮件发送开关
-        "email_recipients": ["sunjiakuo@deepleaper.com"]  # 收件人列表
+        "email_recipients": ["sunjiakuo@deepleaper.com", "deepleaper@gmail.com"]  # 收件人列表
     },
     "TestPartner": {
         "sources": ["TestPartner"],
