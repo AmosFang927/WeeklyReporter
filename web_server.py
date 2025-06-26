@@ -36,7 +36,7 @@ def run_weekly_reporter():
         
         # 处理相对日期参数
         if days_ago is not None:
-            from datetime import datetime, timedelta
+            from datetime import timedelta
             target_date = (datetime.now() - timedelta(days=int(days_ago))).strftime('%Y-%m-%d')
             start_date = target_date
             end_date = target_date
