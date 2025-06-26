@@ -77,6 +77,14 @@ PARTNER_SOURCES_MAPPING = {
         "pattern": r"^TestPartner.*",
         "email_enabled": False,  # 邮件发送开关
         "email_recipients": ["AmosFang927+TestPub@gmail.com"]  # 收件人列表
+    },
+    "ByteC": {
+        "sources": ["ALL"],  # ByteC 处理所有数据，不限制 Sources
+        "pattern": r".*",  # 匹配所有 Sources
+        "email_enabled": True,  # 邮件发送开关
+        "email_recipients": ["AmosFang927@gmail.com"],  # ByteC Loop邮箱（请修改为实际的 ByteC Loop 邮箱）
+        "special_report": True,  # 标记为特殊报表格式
+        "report_type": "bytec_summary"  # 特殊报表类型
     }
 }
 
@@ -97,6 +105,70 @@ EXCEL_SHEET_NAME = "Conversion Report"
 # 数据处理配置
 MOCKUP_MULTIPLIER = 0.9  # sale_amount调整倍数（默认90%）
 REMOVE_COLUMNS = ["payout", "base_payout", "bonus_payout"]  # 要移除的栏位
+
+# =============================================================================
+# ByteC 报表配置
+# =============================================================================
+# ByteC 报表不移除 payout 相关字段，保留完整数据
+BYTEC_REMOVE_COLUMNS = []  # ByteC 报表不移除任何栏位
+BYTEC_MOCKUP_MULTIPLIER = 1.0  # ByteC 报表不调整金额，使用原始数据
+BYTEC_REPORT_TEMPLATE = "ByteC_ConversionReport_{start_date}_to_{end_date}.xlsx"
+BYTEC_SHEET_NAME_TEMPLATE = "{start_date} to {end_date}"  # Sheet 名称模板
+
+# =============================================================================
+# 佣金率配置 (ByteC 报表专用)
+# =============================================================================
+
+# 广告主佣金率配置 (Adv Commission Rate)
+# 按平台(Platform)配置，所有平台都使用动态计算(Avg. Commission Rate)
+ADV_COMMISSION_RATE_MAPPING = {
+    "LisaidByteC": "dynamic",  # 使用Avg. Commission Rate字段值
+    "IAByteC": "dynamic"  # 使用Avg. Commission Rate字段值
+}
+
+# 发布商佣金率配置 (Pub Commission Rate) 
+# 按(Partner, Offer Name)组合配置，单位为百分比
+PUB_COMMISSION_RATE_MAPPING = {
+    # RAMPUP Partner配置
+    ("RAMPUP", "Shopee ID (Media Buyers) - CPS"): 2.5,  # 您指定的2.5%
+    ("RAMPUP", "Shopee PH - CPS"): 2.7,  # 您指定的2.7%
+    
+    # YueMeng Partner配置
+    ("YueMeng", "TikTok Shop ID - CPS"): 1.0,  # 1.0表示1%
+    ("YueMeng", "Shopee TH - CPS"): 2.0,  # 您示例中的2%
+    ("YueMeng", "Shopee MY - CPS"): 2.0,  # 您示例中的2%
+    ("YueMeng", "Shopee PH - CPS"): 2.5,  # 您示例中的2.5%
+    ("YueMeng", "Shopee ID (Media Buyers) - CPS"): 1.5,  # 您示例中的3%
+    ("YueMeng", "Shopee VN - CPS"): 3.0,  # 您示例中的3%
+    
+    # ByteC Partner配置
+    ("ByteC", "Shopee ID (Media Buyers) - CPS"): 1.0,  # 默认1%
+    
+    # 其他组合的默认值在get_pub_commission_rate函数中处理
+}
+
+# 默认发布商佣金率
+DEFAULT_PUB_COMMISSION_RATE = 1.0  # 1%
+
+# API Secret 到 Platform 名称的映射
+API_SECRET_TO_PLATFORM = {
+    "boiTXnRgB2B3N7rCictjjti1ufNIzKksSURJHwqtC50=": "LisaidByteC",
+    "PPoTSymFFxjJu0CXhCrOD0bCpReCjcZNOyEr0BveZm8=": "LisaidWebeye", 
+    "Q524XgLnQmrIBiOK8ZD2qmgmQDPbuTqx13tBDWd6BT0=": "IAByteC"
+}
+
+# API 到公司的映射关系
+API_TO_COMPANY_MAPPING = {
+    "LisaidByteC": "ByteC",
+    "IAByteC": "ByteC", 
+    "LisaidWebeye": "Webeye"
+}
+
+# 公司对应的API列表
+COMPANY_APIS = {
+    "ByteC": ["LisaidByteC", "IAByteC"],
+    "Webeye": ["LisaidWebeye"]
+}
 
 # 飞书上传配置
 FEISHU_UPLOAD_URL = "https://open.feishu.cn/open-apis/drive/v1/files/upload_all"
@@ -297,3 +369,81 @@ PARTNER_EMAIL_MAPPING.update(get_all_partner_email_mapping())
 # 更新向后兼容性别名
 PUB_EMAIL_ENABLED = PARTNER_EMAIL_ENABLED
 PUB_EMAIL_MAPPING = PARTNER_EMAIL_MAPPING
+
+def get_bytec_filename(start_date, end_date):
+    """生成 ByteC 报告文件名"""
+    return BYTEC_REPORT_TEMPLATE.format(
+        start_date=start_date,
+        end_date=end_date
+    )
+
+def is_bytec_partner(partner_name):
+    """检查是否为 ByteC Partner"""
+    return partner_name == "ByteC"
+
+def is_special_report_partner(partner_name):
+    """检查是否为特殊报表类型的 Partner"""
+    partner_config = PARTNER_SOURCES_MAPPING.get(partner_name, {})
+    return partner_config.get('special_report', False)
+
+def get_partner_report_type(partner_name):
+    """获取 Partner 的报表类型"""
+    partner_config = PARTNER_SOURCES_MAPPING.get(partner_name, {})
+    return partner_config.get('report_type', 'standard')
+
+def get_platform_from_api_secret(api_secret):
+    """根据 API Secret 获取平台名称"""
+    return API_SECRET_TO_PLATFORM.get(api_secret, "Unknown Platform")
+
+def get_company_apis(company_name):
+    """获取公司对应的所有API列表"""
+    return COMPANY_APIS.get(company_name, [])
+
+def get_api_company(api_name):
+    """获取API对应的公司"""
+    return API_TO_COMPANY_MAPPING.get(api_name, "Unknown")
+
+def is_bytec_company_api(api_name):
+    """检查API是否属于ByteC公司"""
+    return get_api_company(api_name) == "ByteC"
+
+def get_adv_commission_rate(platform_name, avg_commission_rate=None):
+    """
+    获取广告主佣金率 (Adv Commission Rate)
+    
+    Args:
+        platform_name: 平台名称 (LisaidByteC, IAByteC等)
+        avg_commission_rate: 当前记录的平均佣金率 (仅IAByteC平台需要)
+    
+    Returns:
+        float: 广告主佣金率 (百分比)
+    """
+    if platform_name in ADV_COMMISSION_RATE_MAPPING:
+        rate_config = ADV_COMMISSION_RATE_MAPPING[platform_name]
+        if rate_config == "dynamic":
+            # IAByteC使用动态值(Avg. Commission Rate)
+            return avg_commission_rate if avg_commission_rate is not None else 0.0
+        else:
+            # LisaidByteC使用固定值
+            return float(rate_config)
+    else:
+        # 未配置的平台使用默认值0%
+        return 0.0
+
+def get_pub_commission_rate(partner_name, offer_name):
+    """
+    获取发布商佣金率 (Pub Commission Rate)
+    
+    Args:
+        partner_name: Partner名称
+        offer_name: Offer名称
+    
+    Returns:
+        float: 发布商佣金率 (百分比)
+    """
+    mapping_key = (partner_name, offer_name)
+    if mapping_key in PUB_COMMISSION_RATE_MAPPING:
+        return float(PUB_COMMISSION_RATE_MAPPING[mapping_key])
+    else:
+        # 未配置的组合使用默认值
+        return float(DEFAULT_PUB_COMMISSION_RATE)

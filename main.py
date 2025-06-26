@@ -15,6 +15,7 @@ from modules.data_processor import DataProcessor
 from modules.feishu_uploader import FeishuUploader
 from modules.email_sender import EmailSender
 from modules.scheduler import ReportScheduler
+from modules.bytec_report_generator import ByteCReportGenerator
 from utils.logger import print_step, log_error
 import config
 
@@ -27,7 +28,129 @@ class WeeklyReporter:
         self.data_processor = DataProcessor()
         self.feishu_uploader = FeishuUploader()
         self.email_sender = EmailSender()
+        self.bytec_generator = ByteCReportGenerator(api_secret=api_secret)
         self.scheduler = None
+    
+    def get_multi_api_data(self, api_list, start_date, end_date, max_records=None):
+        """
+        从多个API获取数据并合并
+        
+        Args:
+            api_list: API配置列表 [{'name': 'LisaidByteC', 'secret': '...', 'key': '...'}, ...]
+            start_date: 开始日期
+            end_date: 结束日期
+            max_records: 最大记录数限制
+            
+        Returns:
+            dict: 合并后的数据，包含来源API标记
+        """
+        print_step("多API模式", f"开始从 {len(api_list)} 个API获取数据")
+        
+        all_conversions = []
+        api_errors = []
+        api_success_count = 0
+        total_records = 0
+        
+        for api_config in api_list:
+            api_name = api_config['name']
+            api_secret = api_config['secret']
+            api_key = api_config['key']
+            
+            print_step(f"API-{api_name}", f"正在获取 {api_name} 数据...")
+            
+            try:
+                # 创建临时API客户端
+                temp_client = InvolveAsiaAPI(api_secret=api_secret, api_key=api_key)
+                
+                # 临时设置记录限制
+                original_limit = config.MAX_RECORDS_LIMIT
+                if max_records is not None:
+                    config.MAX_RECORDS_LIMIT = max_records
+                
+                # 认证
+                if not temp_client.authenticate():
+                    error_msg = f"API认证失败: {api_name}"
+                    api_errors.append(error_msg)
+                    print_step(f"API-{api_name}", f"❌ {error_msg}")
+                    continue
+                
+                # 获取数据
+                api_data = temp_client.get_conversions(start_date, end_date)
+                
+                # 恢复原始限制
+                config.MAX_RECORDS_LIMIT = original_limit
+                
+                if not api_data or 'data' not in api_data:
+                    error_msg = f"数据获取失败: {api_name}"
+                    api_errors.append(error_msg)
+                    print_step(f"API-{api_name}", f"❌ {error_msg}")
+                    continue
+                
+                # 获取转换记录 - 修复数据路径
+                if 'data' in api_data and 'data' in api_data['data']:
+                    # 标准API返回结构: {'data': {'data': [conversions...]}}
+                    conversions = api_data['data']['data']
+                elif 'data' in api_data and 'conversions' in api_data['data']:
+                    # 备用结构: {'data': {'conversions': [...]}}
+                    conversions = api_data['data']['conversions']
+                else:
+                    # 其他可能结构
+                    conversions = api_data.get('data', [])
+                
+                record_count = len(conversions) if isinstance(conversions, list) else 0
+                
+                # 为每条记录添加API来源标记
+                for conversion in conversions:
+                    conversion['api_source'] = api_name
+                    conversion['api_platform'] = config.get_platform_from_api_secret(api_secret)
+                
+                all_conversions.extend(conversions)
+                total_records += record_count
+                api_success_count += 1
+                
+                print_step(f"API-{api_name}", f"✅ 成功获取 {record_count:,} 条记录")
+                
+            except Exception as e:
+                error_msg = f"API异常: {api_name} - {str(e)}"
+                api_errors.append(error_msg)
+                print_step(f"API-{api_name}", f"❌ {error_msg}")
+                continue
+        
+        # 检查是否所有API都成功
+        if api_success_count != len(api_list):
+            failed_count = len(api_list) - api_success_count
+            error_summary = f"多API获取失败: {failed_count}/{len(api_list)} 个API失败"
+            print_step("多API错误", f"❌ {error_summary}")
+            
+            # 列出所有错误
+            for error in api_errors:
+                print_step("API错误详情", f"   • {error}")
+            
+            raise Exception(f"{error_summary}。错误详情: {'; '.join(api_errors)}")
+        
+        # 构造合并后的数据结构
+        merged_data = {
+            'data': {
+                'conversions': all_conversions,
+                'current_page_count': total_records,
+                'total_count': total_records,
+                'api_sources': [api['name'] for api in api_list],
+                'merge_info': {
+                    'total_apis': len(api_list),
+                    'successful_apis': api_success_count,
+                    'total_records': total_records,
+                    'api_breakdown': {api['name']: len([c for c in all_conversions if c['api_source'] == api['name']]) 
+                                    for api in api_list}
+                }
+            },
+            'success': True,
+            'message': f"成功合并 {api_success_count} 个API的数据"
+        }
+        
+        print_step("多API完成", f"✅ 成功合并 {total_records:,} 条记录 (来自 {api_success_count} 个API)")
+        print_step("API数据分布", f"数据分布: {merged_data['data']['merge_info']['api_breakdown']}")
+        
+        return merged_data
     
     def run_full_workflow(self, start_date=None, end_date=None, output_filename=None, save_json=False, upload_to_feishu=False, send_email=False, max_records=None, target_partner=None):
         """
@@ -65,16 +188,57 @@ class WeeklyReporter:
         }
         
         try:
-            # 步骤1: API认证
-            if not self.api_client.authenticate():
-                result['error'] = "API认证失败"
-                return result
-            
-            # 步骤2: 获取数据
-            if start_date and end_date:
-                conversion_data = self.api_client.get_conversions(start_date, end_date)
+            # 步骤1&2: 检查是否为 ByteC 多API模式
+            if target_partner == "ByteC":
+                print_step("ByteC多API模式", "检测到 ByteC Partner，启用多API数据获取模式")
+                
+                # 获取 ByteC 公司的所有 API 配置
+                bytec_apis = config.get_company_apis("ByteC")
+                if not bytec_apis:
+                    result['error'] = "ByteC 配置错误：未找到对应的API列表"
+                    return result
+                
+                print_step("API准备", f"将从 {len(bytec_apis)} 个API获取数据: {', '.join(bytec_apis)}")
+                
+                # 构造API配置列表
+                api_configs = []
+                for api_name in bytec_apis:
+                    api_config = get_api_configs().get(api_name)
+                    if not api_config:
+                        result['error'] = f"API配置错误：未找到 {api_name} 的配置信息"
+                        return result
+                    api_configs.append({
+                        'name': api_name,
+                        'secret': api_config['api_secret'],
+                        'key': api_config['api_key']
+                    })
+                
+                # 确定日期范围
+                actual_start_date = start_date
+                actual_end_date = end_date
+                if not actual_start_date or not actual_end_date:
+                    actual_start_date, actual_end_date = config.get_default_date_range()
+                
+                # 从多个API获取数据
+                conversion_data = self.get_multi_api_data(
+                    api_configs, 
+                    actual_start_date, 
+                    actual_end_date, 
+                    max_records
+                )
+                
             else:
-                conversion_data = self.api_client.get_conversions_default_range()
+                # 标准单API模式
+                # 步骤1: API认证
+                if not self.api_client.authenticate():
+                    result['error'] = "API认证失败"
+                    return result
+                
+                # 步骤2: 获取数据
+                if start_date and end_date:
+                    conversion_data = self.api_client.get_conversions(start_date, end_date)
+                else:
+                    conversion_data = self.api_client.get_conversions_default_range()
             
             if not conversion_data:
                 result['error'] = "数据获取失败"
@@ -82,11 +246,29 @@ class WeeklyReporter:
             
             # 步骤3: 保存JSON（可选）
             if save_json:
-                json_file = self.api_client.save_to_json(conversion_data)
-                result['json_file'] = json_file
+                if target_partner == "ByteC":
+                    # ByteC多API模式：使用自定义保存方法
+                    import json
+                    import os
+                    from datetime import datetime
+                    
+                    # 生成文件名
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    json_filename = f"conversions_{timestamp}.json"
+                    json_filepath = os.path.join(config.OUTPUT_DIR, json_filename)
+                    
+                    # 保存多API格式的数据
+                    with open(json_filepath, 'w', encoding='utf-8') as f:
+                        json.dump(conversion_data, f, indent=2, ensure_ascii=False)
+                    
+                    result['json_file'] = json_filepath
+                    print_step("JSON保存", f"✅ 已保存多API格式JSON: {json_filepath}")
+                else:
+                    # 标准单API模式：使用原有方法
+                    json_file = self.api_client.save_to_json(conversion_data)
+                    result['json_file'] = json_file
             
-            # 步骤4: 数据处理与清洗
-            print_step("数据处理", "开始执行数据清洗与Pub分类导出")
+            # 步骤4: 检查是否为 ByteC 特殊报表
             # 获取实际的日期范围
             actual_start_date = start_date
             actual_end_date = end_date
@@ -94,25 +276,51 @@ class WeeklyReporter:
                 # 如果没有指定日期，使用默认日期范围
                 actual_start_date, actual_end_date = config.get_default_date_range()
             
-            # 传递完整的日期范围信息
-            processor_result = self.data_processor.process_data(
-                conversion_data, 
-                start_date=actual_start_date, 
-                end_date=actual_end_date
-            )
-            result['processing_summary'] = processor_result
-            result['pub_files'] = processor_result.get('pub_files', [])
+            # 检查是否只处理 ByteC
+            if target_partner == "ByteC":
+                print_step("ByteC特殊报表", "生成 ByteC 公司专用汇总报表")
+                # 生成 ByteC 报表
+                bytec_file = self.bytec_generator.generate_bytec_report(
+                    conversion_data, 
+                    actual_start_date, 
+                    actual_end_date
+                )
+                result['excel_file'] = bytec_file
+                result['bytec_file'] = bytec_file
+                
+                # 为 ByteC 准备处理摘要
+                result['processing_summary'] = {
+                    'total_records': conversion_data['data']['current_page_count'],
+                    'total_sale_amount': 0,  # 将在后续计算
+                    'adjusted_total_amount_formatted': '$0.00',  # 将在后续计算
+                    'partner_summary': {'ByteC': {'records': conversion_data['data']['current_page_count'], 'amount_formatted': '$0.00'}},
+                    'partner_count': 1
+                }
+                result['pub_files'] = [bytec_file]  # 为了兼容性
+            else:
+                # 标准数据处理与清洗
+                print_step("数据处理", "开始执行数据清洗与Pub分类导出")
+                
+                # 传递完整的日期范围信息
+                processor_result = self.data_processor.process_data(
+                    conversion_data, 
+                    start_date=actual_start_date, 
+                    end_date=actual_end_date
+                )
+                result['processing_summary'] = processor_result
+                result['pub_files'] = processor_result.get('pub_files', [])
             
-            # 步骤5: 生成主Excel文件（使用清洗后的数据）
-            print_step("主Excel生成", "使用清洗后的数据生成主Excel文件")
-            # 确定输出文件名，如果没有指定则使用日期范围
-            if not output_filename:
-                output_filename = f"AllPartners_ConversionReport_{actual_start_date}_to_{actual_end_date}.xlsx"
-            
-            # 使用清洗后的数据生成主Excel文件
-            cleaned_data = self.data_processor.processed_data
-            excel_file = self._generate_main_excel_from_cleaned_data(cleaned_data, output_filename)
-            result['excel_file'] = excel_file
+            # 步骤5: 生成主Excel文件（仅适用于标准处理流程）
+            if target_partner != "ByteC":
+                print_step("主Excel生成", "使用清洗后的数据生成主Excel文件")
+                # 确定输出文件名，如果没有指定则使用日期范围
+                if not output_filename:
+                    output_filename = f"AllPartners_ConversionReport_{actual_start_date}_to_{actual_end_date}.xlsx"
+                
+                # 使用清洗后的数据生成主Excel文件
+                cleaned_data = self.data_processor.processed_data
+                excel_file = self._generate_main_excel_from_cleaned_data(cleaned_data, output_filename)
+                result['excel_file'] = excel_file
             
             # 步骤6: 飞书上传（可选）
             if upload_to_feishu:

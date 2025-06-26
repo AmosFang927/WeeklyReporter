@@ -232,6 +232,7 @@ class EmailSender:
             'end_date': report_date,
             'report_date': report_date,
             'main_file': os.path.basename(file_path) if file_path else '',
+            'file_path': file_path,  # 添加完整文件路径，供ByteC邮件模板使用
             'sources': partner_data.get('sources', []),
             'sources_count': partner_data.get('sources_count', 0),
             'sources_statistics': sources_statistics
@@ -258,14 +259,23 @@ class EmailSender:
                     # 读取该sheet的数据
                     df = pd.read_excel(file_path, sheet_name=sheet_name)
                     
-                    if 'sale_amount' in df.columns and len(df) > 0:
-                        sheet_total = df['sale_amount'].sum()
+                    # 支持多种可能的销售金额列名
+                    sales_amount_col = None
+                    possible_col_names = ['Sales Amount', 'sale_amount', 'Sale Amount', 'sales_amount', 'SALES_AMOUNT']
+                    
+                    for col_name in possible_col_names:
+                        if col_name in df.columns:
+                            sales_amount_col = col_name
+                            break
+                    
+                    if sales_amount_col and len(df) > 0:
+                        sheet_total = df[sales_amount_col].sum()
                         total_amount += sheet_total
                         sheet_details.append(f"  - {sheet_name}: ${sheet_total:.2f}")
-                        print_step("金额计算", f"📋 Sheet '{sheet_name}': ${sheet_total:.2f} ({len(df)} 条记录)")
+                        print_step("金额计算", f"📋 Sheet '{sheet_name}': ${sheet_total:.2f} ({len(df)} 条记录，使用列'{sales_amount_col}')")
                     else:
-                        sheet_details.append(f"  - {sheet_name}: $0.00 (无数据或无sale_amount列)")
-                        print_step("金额计算", f"⚠️ Sheet '{sheet_name}': 无sale_amount列或无数据")
+                        sheet_details.append(f"  - {sheet_name}: $0.00 (无数据或无销售金额列)")
+                        print_step("金额计算", f"⚠️ Sheet '{sheet_name}': 无销售金额列或无数据")
                 
                 except Exception as e:
                     print_step("金额计算", f"⚠️ 处理Sheet '{sheet_name}' 失败: {str(e)}")
@@ -304,8 +314,17 @@ class EmailSender:
                 # 读取该sheet的数据来计算销售金额
                 df = pd.read_excel(file_path, sheet_name=sheet_name)
                 
-                if 'sale_amount' in df.columns and len(df) > 0:
-                    sales_amount = df['sale_amount'].sum()
+                # 支持多种可能的销售金额列名
+                sales_amount_col = None
+                possible_col_names = ['Sales Amount', 'sale_amount', 'Sale Amount', 'sales_amount', 'SALES_AMOUNT']
+                
+                for col_name in possible_col_names:
+                    if col_name in df.columns:
+                        sales_amount_col = col_name
+                        break
+                
+                if sales_amount_col and len(df) > 0:
+                    sales_amount = df[sales_amount_col].sum()
                     formatted_amount = f"${sales_amount:.2f}"
                 else:
                     formatted_amount = '$0.00'
@@ -405,6 +424,10 @@ class EmailSender:
     
     def _generate_partner_email_body(self, partner_name, email_data, feishu_info):
         """生成Partner专用邮件正文"""
+        # 检查是否为ByteC Partner，使用专用模板
+        if self._is_bytec_partner(partner_name):
+            return self._generate_bytec_email_body(partner_name, email_data, feishu_info)
+        
         report_date = email_data.get('report_date', datetime.now().strftime("%Y-%m-%d"))
         completion_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -708,6 +731,485 @@ class EmailSender:
     def _create_pub_email_message(self, pub_name, email_data, file_paths, receivers, feishu_info, report_date=None, cc_email=None):
         """向后兼容性方法，调用新的_create_partner_email_message"""
         return self._create_partner_email_message(pub_name, email_data, file_paths, receivers, feishu_info, report_date, cc_email)
+
+    def _is_bytec_partner(self, partner_name):
+        """检查是否为ByteC Partner"""
+        return config.is_bytec_partner(partner_name)
+
+    def _generate_bytec_email_body(self, partner_name, email_data, feishu_info):
+        """生成ByteC专用邮件正文"""
+        report_date = email_data.get('report_date', datetime.now().strftime("%Y-%m-%d"))
+        completion_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 从email_data获取基本信息
+        start_date = email_data.get('start_date', report_date)
+        end_date = email_data.get('end_date', report_date)
+        main_file = email_data.get('main_file', f'ByteC_ConversionReport_{report_date}.xlsx')
+        
+        # 加载ByteC专用HTML模板
+        template = self._load_html_template('bytec_email_template.html')
+        if not template:
+            # 如果模板加载失败，使用备用的简单HTML
+            return self._generate_fallback_email_body(partner_name, email_data, feishu_info)
+        
+        # 从Excel文件计算ByteC三个维度的数据
+        file_path = email_data.get('file_path')
+        if not file_path or not os.path.exists(file_path):
+            print_step("ByteC邮件", f"⚠️ 文件不存在: {file_path}")
+            # 使用默认值
+            bytec_data = self._get_default_bytec_data()
+        else:
+            bytec_data = self._calculate_bytec_summary_from_excel(file_path)
+        
+        # 准备飞书链接部分
+        feishu_section = ""
+        if feishu_info and self.include_feishu_links:
+            if feishu_info.get('success') and feishu_info.get('uploaded_files'):
+                feishu_template = self._load_html_template('feishu_section.html')
+                if feishu_template:
+                    feishu_links = ""
+                    for file_info in feishu_info['uploaded_files']:
+                        filename = file_info.get('filename', '')
+                        
+                        # 优先使用飞书返回的URL
+                        feishu_url = file_info.get('url')
+                        if not feishu_url:
+                            # 如果没有url字段，尝试用file_token构造
+                            file_token = file_info.get('file_token') or file_info.get('file_id')
+                            if file_token:
+                                feishu_url = f"https://bytedance.feishu.cn/sheets/{file_token}"
+                        
+                        if feishu_url:
+                            feishu_links += f'<li><a href="{feishu_url}" target="_blank" style="color: #007bff; text-decoration: none; font-weight: bold;">{filename}</a></li>'
+                        else:
+                            feishu_links += f'<li>{filename} (已上传)</li>'
+                    
+                    feishu_section = feishu_template.replace('{{feishu_links}}', feishu_links)
+        
+        # 替换模板中的占位符
+        body = template.replace('{{start_date}}', start_date)
+        body = body.replace('{{end_date}}', end_date)
+        body = body.replace('{{main_file}}', main_file)
+        body = body.replace('{{completion_time}}', completion_time)
+        body = body.replace('{{feishu_section}}', feishu_section)
+        
+        # ByteC Company Level Summary
+        body = body.replace('{{company_total_conversion}}', str(bytec_data['company']['total_conversion']))
+        body = body.replace('{{company_total_sales}}', bytec_data['company']['total_sales'])
+        body = body.replace('{{company_total_earning}}', bytec_data['company']['total_earning'])
+        body = body.replace('{{company_total_adv_commission}}', bytec_data['company']['total_adv_commission'])
+        body = body.replace('{{company_total_pub_commission}}', bytec_data['company']['total_pub_commission'])
+        body = body.replace('{{company_total_bytec_commission}}', bytec_data['company']['total_bytec_commission'])
+        body = body.replace('{{company_bytec_roi}}', bytec_data['company']['bytec_roi'])
+        body = body.replace('{{company_roi_class}}', bytec_data['company']['roi_class'])
+        
+        # Partner + Source Level Summary
+        partner_source_rows = self._generate_partner_source_summary_rows(bytec_data['partner_source'])
+        body = body.replace('{{partner_source_summary_rows}}', partner_source_rows)
+        
+        # Offer Level Summary
+        offer_rows = self._generate_offer_summary_rows(bytec_data['offer'])
+        body = body.replace('{{offer_summary_rows}}', offer_rows)
+        
+        return body
+
+    def _calculate_bytec_summary_from_excel(self, file_path):
+        """从Excel文件计算ByteC三个维度的汇总数据"""
+        try:
+            # 读取Excel文件的所有sheet
+            excel_file = pd.ExcelFile(file_path)
+            all_data = []
+            
+            # 合并所有sheet的数据
+            for sheet_name in excel_file.sheet_names:
+                df = pd.read_excel(file_path, sheet_name=sheet_name)
+                if not df.empty:
+                    all_data.append(df)
+            
+            if not all_data:
+                return self._get_default_bytec_data()
+            
+            # 合并所有数据
+            combined_df = pd.concat(all_data, ignore_index=True)
+            
+            # 计算Company Level Summary
+            company_summary = self._calculate_company_level_summary(combined_df)
+            
+            # 计算Partner + Source Level Summary (按优先级排序)
+            partner_source_summary = self._calculate_partner_source_summary(combined_df)
+            
+            # 计算Offer Level Summary (按优先级排序)
+            offer_summary = self._calculate_offer_level_summary(combined_df)
+            
+            return {
+                'company': company_summary,
+                'partner_source': partner_source_summary,
+                'offer': offer_summary
+            }
+            
+        except Exception as e:
+            print_step("ByteC数据计算", f"❌ 计算失败: {str(e)}")
+            return self._get_default_bytec_data()
+
+    def _calculate_company_level_summary(self, df):
+        """计算公司级别汇总"""
+        try:
+            # 找到转换数量列 - 关键修复！
+            conversion_column = None
+            for col in ['Conversions', 'conversions', 'conversion', 'Total Conversion']:
+                if col in df.columns:
+                    conversion_column = col
+                    break
+            
+            # 基本统计：优先使用Conversions列求和，否则用行数
+            if conversion_column:
+                total_conversion = df[conversion_column].sum()
+            else:
+                total_conversion = len(df)
+            
+            # 金额计算 - 支持多种列名格式
+            sales_amount_column = None
+            for col in ['Sales Amount', 'sale_amount', 'sales_amount']:
+                if col in df.columns:
+                    sales_amount_column = col
+                    break
+            
+            total_sales = 0.0
+            if sales_amount_column:
+                total_sales = df[sales_amount_column].sum()
+            
+            # Estimated Earning计算
+            earning_column = None
+            for col in ['Estimated Earning', 'estimated_earning', 'earning']:
+                if col in df.columns:
+                    earning_column = col
+                    break
+            
+            total_earning = 0.0
+            if earning_column:
+                total_earning = df[earning_column].sum()
+            
+            # 佣金计算
+            adv_commission_total = 0.0
+            pub_commission_total = 0.0
+            bytec_commission_total = 0.0
+            
+            # Adv Commission Rate计算
+            adv_commission_column = None
+            for col in ['Adv Commission Rate', 'adv_commission_rate']:
+                if col in df.columns:
+                    adv_commission_column = col
+                    break
+            
+            if adv_commission_column and sales_amount_column:
+                # Adv Commission = Sales Amount * Adv Commission Rate
+                df_adv = df.copy()
+                df_adv[adv_commission_column] = pd.to_numeric(df_adv[adv_commission_column], errors='coerce').fillna(0)
+                df_adv[sales_amount_column] = pd.to_numeric(df_adv[sales_amount_column], errors='coerce').fillna(0)
+                adv_commission_total = (df_adv[sales_amount_column] * df_adv[adv_commission_column]).sum()
+            
+            # Pub Commission Rate计算
+            pub_commission_column = None
+            for col in ['Pub Commission Rate', 'pub_commission_rate']:
+                if col in df.columns:
+                    pub_commission_column = col
+                    break
+            
+            if pub_commission_column and sales_amount_column:
+                # Pub Commission = Sales Amount * Pub Commission Rate
+                df_pub = df.copy()
+                df_pub[pub_commission_column] = pd.to_numeric(df_pub[pub_commission_column], errors='coerce').fillna(0)
+                df_pub[sales_amount_column] = pd.to_numeric(df_pub[sales_amount_column], errors='coerce').fillna(0)
+                pub_commission_total = (df_pub[sales_amount_column] * df_pub[pub_commission_column]).sum()
+            
+            # ByteC Commission = Adv Commission - Pub Commission
+            bytec_commission_total = adv_commission_total - pub_commission_total
+            
+            # ByteC ROI计算 = ByteC Commission / Estimated Earning * 100%
+            bytec_roi = 0.0
+            roi_class = "amount"  # 默认绿色
+            if total_earning > 0:
+                bytec_roi = (bytec_commission_total / total_earning) * 100
+                if bytec_roi < 0:
+                    roi_class = "negative-roi"  # 负值用红色
+            
+            return {
+                'total_conversion': int(total_conversion),  # 确保是整数
+                'total_sales': f"${total_sales:,.2f}",
+                'total_earning': f"${total_earning:,.2f}",
+                'total_adv_commission': f"${adv_commission_total:,.2f}",
+                'total_pub_commission': f"${pub_commission_total:,.2f}",
+                'total_bytec_commission': f"${bytec_commission_total:,.2f}",
+                'bytec_roi': f"{bytec_roi:.2f}%",
+                'roi_class': roi_class
+            }
+            
+        except Exception as e:
+            print_step("公司汇总计算", f"❌ 失败: {str(e)}")
+            return {
+                'total_conversion': 0,
+                'total_sales': "$0.00",
+                'total_earning': "$0.00",
+                'total_adv_commission': "$0.00",
+                'total_pub_commission': "$0.00",
+                'total_bytec_commission': "$0.00",
+                'bytec_roi': "0.00%",
+                'roi_class': "amount"
+            }
+
+    def _calculate_partner_source_summary(self, df):
+        """计算Partner + Source维度汇总（按优先级排序）"""
+        try:
+            # 找到Partner和Source列
+            partner_column = None
+            source_column = None
+            
+            for col in ['Partner', 'partner', 'Partner Name']:
+                if col in df.columns:
+                    partner_column = col
+                    break
+            
+            for col in ['Source', 'source', 'aff_sub1', 'Source Name']:
+                if col in df.columns:
+                    source_column = col
+                    break
+            
+            if not partner_column or not source_column:
+                return []
+            
+            # 找到转换数量列 - 关键修复！
+            conversion_column = None
+            for col in ['Conversions', 'conversions', 'conversion', 'Total Conversion']:
+                if col in df.columns:
+                    conversion_column = col
+                    break
+            
+            # 找到金额列
+            sales_amount_column = None
+            earning_column = None
+            
+            for col in ['Sales Amount', 'sale_amount', 'sales_amount']:
+                if col in df.columns:
+                    sales_amount_column = col
+                    break
+                    
+            for col in ['Estimated Earning', 'estimated_earning', 'earning']:
+                if col in df.columns:
+                    earning_column = col
+                    break
+            
+            # 按Partner + Source分组统计
+            agg_dict = {}
+            if sales_amount_column:
+                agg_dict[sales_amount_column] = 'sum'
+            if earning_column:
+                agg_dict[earning_column] = 'sum'
+            # 关键修复：如果有Conversions列，则求和；否则用行数
+            if conversion_column:
+                agg_dict[conversion_column] = 'sum'
+            
+            grouped = df.groupby([partner_column, source_column]).agg(agg_dict).reset_index()
+            
+            # 计算转换数量：优先使用Conversions列，否则用行数
+            if conversion_column:
+                # 直接使用Conversions列的汇总值
+                grouped['conversion_count'] = grouped[conversion_column]
+            else:
+                # 回退到计算分组行数（兼容性）
+                group_counts = df.groupby([partner_column, source_column]).size().reset_index(name='conversion_count')
+                grouped = grouped.merge(group_counts, on=[partner_column, source_column])
+            
+            # 重命名列
+            column_mapping = {
+                partner_column: partner_column,
+                source_column: source_column
+            }
+            if sales_amount_column:
+                column_mapping[sales_amount_column] = 'total_sales'
+            if earning_column:
+                column_mapping[earning_column] = 'total_earning'
+                
+            grouped = grouped.rename(columns=column_mapping)
+            
+            # 创建Partner + Source组合
+            grouped['partner_source'] = grouped[partner_column] + "+" + grouped[source_column]
+            
+            # 确保missing列存在默认值
+            if 'total_sales' not in grouped.columns:
+                grouped['total_sales'] = 0.0
+            if 'total_earning' not in grouped.columns:
+                grouped['total_earning'] = 0.0
+            
+            # 按Estimated Earning降序排序（优先级）
+            grouped = grouped.sort_values('total_earning', ascending=False)
+            
+            # 转换为列表格式
+            summary_list = []
+            for idx, row in grouped.iterrows():
+                summary_list.append({
+                    'partner_source': row['partner_source'],
+                    'conversion': int(row['conversion_count']),
+                    'sales_amount': f"${row['total_sales']:,.2f}",
+                    'estimated_earning': f"${row['total_earning']:,.2f}"
+                })
+            
+            return summary_list
+            
+        except Exception as e:
+            print_step("Partner+Source汇总", f"❌ 失败: {str(e)}")
+            return []
+
+    def _calculate_offer_level_summary(self, df):
+        """计算Offer维度汇总（按优先级排序）"""
+        try:
+            # 找到Offer列
+            offer_column = None
+            
+            for col in ['Offer Name', 'offer_name', 'offer', 'Offer']:
+                if col in df.columns:
+                    offer_column = col
+                    break
+            
+            if not offer_column:
+                return []
+            
+            # 找到转换数量列 - 关键修复！
+            conversion_column = None
+            for col in ['Conversions', 'conversions', 'conversion', 'Total Conversion']:
+                if col in df.columns:
+                    conversion_column = col
+                    break
+            
+            # 找到金额列
+            sales_amount_column = None
+            earning_column = None
+            
+            for col in ['Sales Amount', 'sale_amount', 'sales_amount']:
+                if col in df.columns:
+                    sales_amount_column = col
+                    break
+                    
+            for col in ['Estimated Earning', 'estimated_earning', 'earning']:
+                if col in df.columns:
+                    earning_column = col
+                    break
+            
+            # 过滤掉TOTAL行（这是Excel中的汇总行，不是真实的Offer）
+            df_filtered = df[df[offer_column] != 'TOTAL'].copy()
+            
+            # 按Offer分组统计
+            agg_dict = {}
+            if sales_amount_column:
+                agg_dict[sales_amount_column] = 'sum'
+            if earning_column:
+                agg_dict[earning_column] = 'sum'
+            # 关键修复：如果有Conversions列，则求和；否则用行数
+            if conversion_column:
+                agg_dict[conversion_column] = 'sum'
+            
+            grouped = df_filtered.groupby(offer_column).agg(agg_dict).reset_index()
+            
+            # 计算转换数量：优先使用Conversions列，否则用行数
+            if conversion_column:
+                # 直接使用Conversions列的汇总值
+                grouped['conversion_count'] = grouped[conversion_column]
+            else:
+                # 回退到计算分组行数（兼容性）
+                group_counts = df_filtered.groupby(offer_column).size().reset_index(name='conversion_count')
+                grouped = grouped.merge(group_counts, on=offer_column)
+            
+            # 重命名列
+            column_mapping = {
+                offer_column: offer_column
+            }
+            if sales_amount_column:
+                column_mapping[sales_amount_column] = 'total_sales'
+            if earning_column:
+                column_mapping[earning_column] = 'total_earning'
+                
+            grouped = grouped.rename(columns=column_mapping)
+            
+            # 确保missing列存在默认值
+            if 'total_sales' not in grouped.columns:
+                grouped['total_sales'] = 0.0
+            if 'total_earning' not in grouped.columns:
+                grouped['total_earning'] = 0.0
+            
+            # 按Estimated Earning降序排序（优先级）
+            grouped = grouped.sort_values('total_earning', ascending=False)
+            
+            # 转换为列表格式
+            summary_list = []
+            for idx, row in grouped.iterrows():
+                summary_list.append({
+                    'offer_name': row[offer_column],
+                    'conversion': int(row['conversion_count']),
+                    'sales_amount': f"${row['total_sales']:,.2f}",
+                    'estimated_earning': f"${row['total_earning']:,.2f}"
+                })
+            
+            return summary_list
+            
+        except Exception as e:
+            print_step("Offer汇总", f"❌ 失败: {str(e)}")
+            return []
+
+    def _generate_partner_source_summary_rows(self, partner_source_data):
+        """生成Partner + Source汇总表格行"""
+        if not partner_source_data:
+            return "<tr><td colspan='5'>暂无数据</td></tr>"
+        
+        rows = []
+        for idx, item in enumerate(partner_source_data, 1):
+            row = f"""
+            <tr>
+                <td><strong>{idx}</strong></td>
+                <td><strong>{item['partner_source']}</strong></td>
+                <td>{item['conversion']}</td>
+                <td><span class="amount">{item['sales_amount']}</span></td>
+                <td><span class="amount">{item['estimated_earning']}</span></td>
+            </tr>
+            """
+            rows.append(row)
+        
+        return "".join(rows)
+
+    def _generate_offer_summary_rows(self, offer_data):
+        """生成Offer汇总表格行"""
+        if not offer_data:
+            return "<tr><td colspan='5'>暂无数据</td></tr>"
+        
+        rows = []
+        for idx, item in enumerate(offer_data, 1):
+            row = f"""
+            <tr>
+                <td><strong>{idx}</strong></td>
+                <td><strong>{item['offer_name']}</strong></td>
+                <td>{item['conversion']}</td>
+                <td><span class="amount">{item['sales_amount']}</span></td>
+                <td><span class="amount">{item['estimated_earning']}</span></td>
+            </tr>
+            """
+            rows.append(row)
+        
+        return "".join(rows)
+
+    def _get_default_bytec_data(self):
+        """获取默认的ByteC数据（当无法读取Excel时使用）"""
+        return {
+            'company': {
+                'total_conversion': 0,
+                'total_sales': "$0.00",
+                'total_earning': "$0.00",
+                'total_adv_commission': "$0.00",
+                'total_pub_commission': "$0.00",
+                'total_bytec_commission': "$0.00",
+                'bytec_roi': "0.00%",
+                'roi_class': "amount"
+            },
+            'partner_source': [],
+            'offer': []
+        }
 
 # 便捷函数
 def send_report_email(report_data, file_paths=None, feishu_upload_result=None):
