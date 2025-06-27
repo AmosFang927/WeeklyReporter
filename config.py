@@ -195,6 +195,12 @@ EMAIL_INCLUDE_ATTACHMENTS = True  # 是否包含附件
 EMAIL_INCLUDE_FEISHU_LINKS = False  # 是否包含飞书链接
 EMAIL_SUBJECT_TEMPLATE = "Conversion Report - {date}"  # 邮件主题模板
 
+# 邮件超时和重试配置
+EMAIL_SMTP_TIMEOUT = 60  # SMTP连接超时时间(秒)
+EMAIL_MAX_RETRIES = 3    # 最大重试次数
+EMAIL_RETRY_DELAY = 5    # 初始重试延迟(秒)
+EMAIL_RETRY_BACKOFF = 2  # 指数退避倍数
+
 # 邮件自动抄送配置
 EMAIL_AUTO_CC = "AmosFang927@gmail.com"  # 自动抄送邮箱，设为None可禁用
 

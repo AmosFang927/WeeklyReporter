@@ -6,6 +6,8 @@
 
 import os
 import smtplib
+import time
+import socket
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -34,6 +36,12 @@ class EmailSender:
         self.include_attachments = config.EMAIL_INCLUDE_ATTACHMENTS
         self.include_feishu_links = config.EMAIL_INCLUDE_FEISHU_LINKS
         self.subject_template = config.EMAIL_SUBJECT_TEMPLATE
+        
+        # 新增超时和重试配置
+        self.smtp_timeout = getattr(config, 'EMAIL_SMTP_TIMEOUT', 60)
+        self.max_retries = getattr(config, 'EMAIL_MAX_RETRIES', 3)
+        self.retry_delay = getattr(config, 'EMAIL_RETRY_DELAY', 5)
+        self.retry_backoff = getattr(config, 'EMAIL_RETRY_BACKOFF', 2)
     
     def send_partner_reports(self, partner_summary, feishu_upload_result=None, report_date=None, start_date=None):
         """
@@ -153,24 +161,23 @@ class EmailSender:
             # 创建邮件对象
             msg = self._create_email_message(report_data, file_paths, feishu_upload_result, self.default_receivers)
             
-            # 发送邮件
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                if self.enable_tls:
-                    server.starttls()
-                
-                server.login(self.sender, self.password)
-                text = msg.as_string()
-                server.sendmail(self.sender, self.default_receivers, text)
+            # 使用重试机制发送邮件
+            send_result = self._send_email_with_retry(msg, self.default_receivers, "通用邮件发送")
             
-            print_step("邮件发送成功", f"✅ 邮件已发送给 {', '.join(self.default_receivers)}")
-            return {
-                'success': True,
-                'recipients': self.default_receivers,
-                'attachments_count': len(file_paths) if file_paths and self.include_attachments else 0
-            }
+            if send_result['success']:
+                print_step("邮件发送成功", f"✅ 邮件已发送给 {', '.join(self.default_receivers)} (尝试 {send_result['attempts']} 次)")
+                return {
+                    'success': True,
+                    'recipients': self.default_receivers,
+                    'attachments_count': len(file_paths) if file_paths and self.include_attachments else 0,
+                    'attempts': send_result['attempts']
+                }
+            else:
+                print_step("邮件发送失败", f"❌ {send_result['error']}")
+                return {'success': False, 'error': send_result['error']}
             
         except Exception as e:
-            error_msg = f"邮件发送失败: {str(e)}"
+            error_msg = f"邮件准备失败: {str(e)}"
             print_step("邮件发送失败", f"❌ {error_msg}")
             return {'success': False, 'error': error_msg}
     
@@ -186,26 +193,26 @@ class EmailSender:
             # 创建邮件对象
             msg = self._create_partner_email_message(partner_name, email_data, file_paths, receivers, feishu_info, report_date, cc_email)
             
-            # 发送邮件
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                if self.enable_tls:
-                    server.starttls()
-                
-                server.login(self.sender, self.password)
-                text = msg.as_string()
-                server.sendmail(self.sender, all_recipients, text)
+            # 使用重试机制发送邮件
+            operation_name = f"Partner邮件-{partner_name}"
+            send_result = self._send_email_with_retry(msg, all_recipients, operation_name)
             
-            cc_info = f" (抄送: {cc_email})" if cc_email else ""
-            print_step(f"Partner邮件-{partner_name}", f"✅ 邮件已发送给 {', '.join(receivers)}{cc_info}")
-            return {
-                'success': True,
-                'recipients': receivers,
-                'cc_recipients': [cc_email] if cc_email else [],
-                'attachments_count': len(file_paths) if file_paths and self.include_attachments else 0
-            }
+            if send_result['success']:
+                cc_info = f" (抄送: {cc_email})" if cc_email else ""
+                print_step(f"Partner邮件-{partner_name}", f"✅ 邮件已发送给 {', '.join(receivers)}{cc_info} (尝试 {send_result['attempts']} 次)")
+                return {
+                    'success': True,
+                    'recipients': receivers,
+                    'cc_recipients': [cc_email] if cc_email else [],
+                    'attachments_count': len(file_paths) if file_paths and self.include_attachments else 0,
+                    'attempts': send_result['attempts']
+                }
+            else:
+                print_step(f"Partner邮件-{partner_name}", f"❌ {send_result['error']}")
+                return {'success': False, 'error': send_result['error']}
             
         except Exception as e:
-            error_msg = f"发送失败: {str(e)}"
+            error_msg = f"邮件准备失败: {str(e)}"
             print_step(f"Partner邮件-{partner_name}", f"❌ {error_msg}")
             return {'success': False, 'error': error_msg}
     
@@ -688,24 +695,31 @@ class EmailSender:
             print_step("附件错误", f"⚠️ 无法添加附件 {file_path}: {str(e)}")
     
     def test_connection(self):
-        """测试邮件服务器连接"""
-        print_step("邮件测试", "正在测试邮件服务器连接...")
+        """测试邮件服务器连接（带超时设置）"""
+        print_step("邮件测试", f"正在测试邮件服务器连接... (超时: {self.smtp_timeout}秒)")
         
         if self.password == "your_gmail_app_password_here":
             print_step("配置错误", "❌ 邮件密码未配置")
             return False
         
         try:
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+            with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=self.smtp_timeout) as server:
+                print_step("邮件测试", "正在建立TLS连接...")
                 if self.enable_tls:
                     server.starttls()
+                
+                print_step("邮件测试", "正在进行身份验证...")
                 server.login(self.sender, self.password)
             
             print_step("邮件测试", "✅ 邮件服务器连接成功")
             return True
             
+        except (smtplib.SMTPException, socket.timeout, socket.error, ConnectionError, OSError) as e:
+            error_type = type(e).__name__
+            print_step("邮件测试", f"❌ 邮件服务器连接失败 ({error_type}): {str(e)}")
+            return False
         except Exception as e:
-            print_step("邮件测试", f"❌ 邮件服务器连接失败: {str(e)}")
+            print_step("邮件测试", f"❌ 邮件服务器连接失败 (未知错误): {str(e)}")
             return False
 
     # 保持向后兼容性的方法别名
@@ -1209,6 +1223,73 @@ class EmailSender:
             },
             'partner_source': [],
             'offer': []
+        }
+
+    def _send_email_with_retry(self, msg, recipients, operation_name="邮件发送"):
+        """
+        带重试机制的稳定邮件发送方法
+        
+        Args:
+            msg: 邮件消息对象
+            recipients: 收件人列表
+            operation_name: 操作名称（用于日志）
+        
+        Returns:
+            dict: 发送结果
+        """
+        last_error = None
+        delay = self.retry_delay
+        
+        for attempt in range(self.max_retries + 1):  # +1 因为第一次不算重试
+            try:
+                print_step(f"{operation_name}尝试", f"第 {attempt + 1} 次尝试 (超时设置: {self.smtp_timeout}秒)")
+                
+                # 创建SMTP连接，设置超时
+                with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=self.smtp_timeout) as server:
+                    # 设置调试模式（仅在开发时启用）
+                    # server.set_debuglevel(1)
+                    
+                    if self.enable_tls:
+                        print_step(f"{operation_name}TLS", "启动TLS加密连接...")
+                        server.starttls()
+                    
+                    print_step(f"{operation_name}认证", "正在登录SMTP服务器...")
+                    server.login(self.sender, self.password)
+                    
+                    print_step(f"{operation_name}发送", f"正在发送邮件给 {len(recipients)} 个收件人...")
+                    text = msg.as_string()
+                    server.sendmail(self.sender, recipients, text)
+                
+                # 发送成功
+                print_step(f"{operation_name}成功", f"✅ 邮件发送成功 (第 {attempt + 1} 次尝试)")
+                return {'success': True, 'attempts': attempt + 1}
+                
+            except (smtplib.SMTPException, socket.timeout, socket.error, ConnectionError, OSError) as e:
+                last_error = e
+                error_type = type(e).__name__
+                error_msg = str(e)
+                
+                print_step(f"{operation_name}错误", f"❌ 第 {attempt + 1} 次尝试失败 ({error_type}): {error_msg}")
+                
+                # 如果不是最后一次尝试，则等待后重试
+                if attempt < self.max_retries:
+                    print_step(f"{operation_name}重试", f"⏳ 等待 {delay} 秒后重试...")
+                    time.sleep(delay)
+                    delay *= self.retry_backoff  # 指数退避
+                else:
+                    print_step(f"{operation_name}失败", f"❌ 所有重试均失败，放弃发送")
+            
+            except Exception as e:
+                # 其他未预期的错误，不重试
+                last_error = e
+                print_step(f"{operation_name}异常", f"❌ 发生未预期错误: {str(e)}")
+                break
+        
+        # 所有尝试都失败了
+        return {
+            'success': False, 
+            'error': f"邮件发送失败 (尝试 {self.max_retries + 1} 次): {str(last_error)}",
+            'attempts': self.max_retries + 1
         }
 
 # 便捷函数

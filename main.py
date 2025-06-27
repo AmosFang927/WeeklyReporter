@@ -888,8 +888,17 @@ def main():
             # 处理多个Partner的情况
             target_partners = None
             if args.partner:
-                # 支持用逗号分隔的多个Partner
-                target_partners = [p.strip() for p in args.partner.split(',') if p.strip()]
+                # 支持用逗号分隔和加号分隔的多个Partner
+                partner_string = args.partner
+                # 先按逗号分隔，再按加号分隔
+                all_partners = []
+                for part in partner_string.split(','):
+                    for p in part.split('+'):
+                        p = p.strip()
+                        if p:
+                            all_partners.append(p)
+                
+                target_partners = all_partners
                 if len(target_partners) == 1:
                     target_partners = target_partners[0]  # 单个Partner保持字符串格式
                 print(f"📋 指定处理的Partner: {target_partners}")
