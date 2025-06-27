@@ -972,8 +972,18 @@ class EmailSender:
             }
 
     def _calculate_partner_source_summary(self, df):
-        """计算Partner + Source维度汇总（按优先级排序）"""
+        """计算Partner + Source维度汇总（按优先级排序）- ByteC Partner+Source汇总增强"""
         try:
+            print_step("Partner+Source汇总", "🔍 开始计算Partner+Source汇总...")
+            
+            # 检查DataFrame是否为空
+            if df is None or len(df) == 0:
+                print_step("Partner+Source汇总", "⚠️ DataFrame为空，返回空列表")
+                return []
+            
+            print_step("Partner+Source汇总", f"📊 输入数据: {len(df)} 行, {len(df.columns)} 列")
+            print_step("Partner+Source汇总", f"📋 列名: {list(df.columns)}")
+            
             # 找到Partner和Source列
             partner_column = None
             source_column = None
@@ -988,13 +998,35 @@ class EmailSender:
                     source_column = col
                     break
             
+            print_step("Partner+Source汇总", f"🔍 找到列: Partner='{partner_column}', Source='{source_column}'")
+            
             if not partner_column or not source_column:
+                print_step("Partner+Source汇总", f"❌ 缺少必要列: Partner列={partner_column}, Source列={source_column}")
                 return []
             
-            # 找到转换数量列 - 关键修复！
+            # 数据清理：移除TOTAL行和空行
+            df_clean = df.copy()
+            
+            # 移除TOTAL行
+            if partner_column in df_clean.columns:
+                total_mask = (df_clean[partner_column] == 'TOTAL') | (df_clean[partner_column].isnull())
+                df_clean = df_clean[~total_mask]
+            
+            # 移除Source为空的行
+            if source_column in df_clean.columns:
+                empty_mask = (df_clean[source_column].isnull()) | (df_clean[source_column] == '') | (df_clean[source_column] == 'nan')
+                df_clean = df_clean[~empty_mask]
+            
+            print_step("Partner+Source汇总", f"📊 数据清理后: {len(df_clean)} 行")
+            
+            if len(df_clean) == 0:
+                print_step("Partner+Source汇总", "⚠️ 清理后无有效数据")
+                return []
+            
+            # 找到转换数量列
             conversion_column = None
             for col in ['Conversions', 'conversions', 'conversion', 'Total Conversion']:
-                if col in df.columns:
+                if col in df_clean.columns:
                     conversion_column = col
                     break
             
@@ -1003,14 +1035,16 @@ class EmailSender:
             earning_column = None
             
             for col in ['Sales Amount', 'sale_amount', 'sales_amount']:
-                if col in df.columns:
+                if col in df_clean.columns:
                     sales_amount_column = col
                     break
                     
             for col in ['Estimated Earning', 'estimated_earning', 'earning']:
-                if col in df.columns:
+                if col in df_clean.columns:
                     earning_column = col
                     break
+            
+            print_step("Partner+Source汇总", f"🔍 数据列: Conversion='{conversion_column}', Sales='{sales_amount_column}', Earning='{earning_column}'")
             
             # 按Partner + Source分组统计
             agg_dict = {}
@@ -1018,19 +1052,23 @@ class EmailSender:
                 agg_dict[sales_amount_column] = 'sum'
             if earning_column:
                 agg_dict[earning_column] = 'sum'
-            # 关键修复：如果有Conversions列，则求和；否则用行数
             if conversion_column:
                 agg_dict[conversion_column] = 'sum'
             
-            grouped = df.groupby([partner_column, source_column]).agg(agg_dict).reset_index()
+            if not agg_dict:
+                print_step("Partner+Source汇总", "⚠️ 无可汇总的数据列")
+                return []
+            
+            grouped = df_clean.groupby([partner_column, source_column]).agg(agg_dict).reset_index()
+            
+            print_step("Partner+Source汇总", f"📊 分组结果: {len(grouped)} 个Partner+Source组合")
             
             # 计算转换数量：优先使用Conversions列，否则用行数
             if conversion_column:
-                # 直接使用Conversions列的汇总值
                 grouped['conversion_count'] = grouped[conversion_column]
             else:
-                # 回退到计算分组行数（兼容性）
-                group_counts = df.groupby([partner_column, source_column]).size().reset_index(name='conversion_count')
+                # 回退到计算分组行数
+                group_counts = df_clean.groupby([partner_column, source_column]).size().reset_index(name='conversion_count')
                 grouped = grouped.merge(group_counts, on=[partner_column, source_column])
             
             # 重命名列
@@ -1046,13 +1084,18 @@ class EmailSender:
             grouped = grouped.rename(columns=column_mapping)
             
             # 创建Partner + Source组合
-            grouped['partner_source'] = grouped[partner_column] + "+" + grouped[source_column]
+            grouped['partner_source'] = grouped[partner_column].astype(str) + "+" + grouped[source_column].astype(str)
             
-            # 确保missing列存在默认值
+            # 确保数值列存在默认值
             if 'total_sales' not in grouped.columns:
                 grouped['total_sales'] = 0.0
             if 'total_earning' not in grouped.columns:
                 grouped['total_earning'] = 0.0
+            
+            # 数据验证
+            grouped['total_sales'] = pd.to_numeric(grouped['total_sales'], errors='coerce').fillna(0.0)
+            grouped['total_earning'] = pd.to_numeric(grouped['total_earning'], errors='coerce').fillna(0.0)
+            grouped['conversion_count'] = pd.to_numeric(grouped['conversion_count'], errors='coerce').fillna(0)
             
             # 按Estimated Earning降序排序（优先级）
             grouped = grouped.sort_values('total_earning', ascending=False)
@@ -1060,17 +1103,31 @@ class EmailSender:
             # 转换为列表格式
             summary_list = []
             for idx, row in grouped.iterrows():
-                summary_list.append({
-                    'partner_source': row['partner_source'],
-                    'conversion': int(row['conversion_count']),
-                    'sales_amount': f"${row['total_sales']:,.2f}",
-                    'estimated_earning': f"${row['total_earning']:,.2f}"
-                })
+                try:
+                    summary_list.append({
+                        'partner_source': str(row['partner_source']),
+                        'conversion': int(row['conversion_count']),
+                        'sales_amount': f"${row['total_sales']:,.2f}",
+                        'estimated_earning': f"${row['total_earning']:,.2f}"
+                    })
+                except Exception as row_error:
+                    print_step("Partner+Source汇总", f"⚠️ 行处理错误: {row_error}")
+                    continue
+            
+            print_step("Partner+Source汇总", f"✅ 成功生成 {len(summary_list)} 个Partner+Source汇总")
+            
+            # 调试输出
+            if len(summary_list) > 0:
+                print_step("Partner+Source汇总", "📊 汇总详情:")
+                for i, item in enumerate(summary_list[:5]):  # 只显示前5个
+                    print_step("Partner+Source汇总", f"   {i+1}. {item['partner_source']}: {item['conversion']} conversions, {item['sales_amount']}")
             
             return summary_list
             
         except Exception as e:
             print_step("Partner+Source汇总", f"❌ 失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return []
 
     def _calculate_offer_level_summary(self, df):
