@@ -26,6 +26,7 @@ Thumbs.db
 # Output files (可选 - 如果不想提交输出文件)
 output/*.xlsx
 output/*.json
+output/*.html
 
 # Temporary files
 temp/
