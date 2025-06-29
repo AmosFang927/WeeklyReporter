@@ -4,33 +4,137 @@ import subprocess
 import threading
 import os
 import sys
+import time
+import json
+from concurrent.futures import ThreadPoolExecutor
+import queue
 
 app = Flask(__name__)
+
+# 全局任务状态管理
+task_status = {
+    "current_task": None,
+    "task_history": [],
+    "last_health_check": None,
+    "server_start_time": datetime.now()
+}
+
+# 任务队列和线程池管理
+task_queue = queue.Queue()
+executor = ThreadPoolExecutor(max_workers=2)  # 限制并发任务数量
+
+class TaskManager:
+    def __init__(self):
+        self.tasks = {}
+        self.lock = threading.Lock()
+    
+    def create_task(self, task_id, command, parameters):
+        with self.lock:
+            self.tasks[task_id] = {
+                "id": task_id,
+                "status": "queued",
+                "command": command,
+                "parameters": parameters,
+                "start_time": None,
+                "end_time": None,
+                "result": None,
+                "progress": "Task queued"
+            }
+            return task_id
+    
+    def update_task(self, task_id, status, progress=None, result=None):
+        with self.lock:
+            if task_id in self.tasks:
+                self.tasks[task_id]["status"] = status
+                if progress:
+                    self.tasks[task_id]["progress"] = progress
+                if result:
+                    self.tasks[task_id]["result"] = result
+                if status == "running" and not self.tasks[task_id]["start_time"]:
+                    self.tasks[task_id]["start_time"] = datetime.now()
+                elif status in ["completed", "failed"]:
+                    self.tasks[task_id]["end_time"] = datetime.now()
+    
+    def get_task(self, task_id):
+        with self.lock:
+            return self.tasks.get(task_id)
+    
+    def get_running_tasks(self):
+        with self.lock:
+            return [task for task in self.tasks.values() if task["status"] == "running"]
+
+# 全局任务管理器
+task_manager = TaskManager()
 
 @app.route("/", methods=["GET"])
 @app.route("/health", methods=["GET"])
 def health_check():
-    """健康检查端点"""
+    """超轻量级健康检查端点 - 优先响应"""
+    global task_status
+    task_status["last_health_check"] = datetime.now()
+    
+    # 最小化响应，确保快速返回
+    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()}), 200
+
+@app.route("/health/detailed", methods=["GET"])
+def detailed_health_check():
+    """详细健康检查端点"""
+    global task_status
+    running_tasks = task_manager.get_running_tasks()
+    
     return jsonify({
         "status": "healthy",
         "service": "WeeklyReporter",
         "timestamp": datetime.now().isoformat(),
-        "version": "2.0.0"
+        "version": "2.1.0",
+        "uptime_seconds": (datetime.now() - task_status["server_start_time"]).total_seconds(),
+        "running_tasks": len(running_tasks),
+        "last_health_check": task_status["last_health_check"].isoformat() if task_status["last_health_check"] else None,
+        "memory_info": {
+            "available": True,  # 简化内存检查
+            "status": "ok"
+        }
     })
+
+@app.route("/liveness", methods=["GET"])
+def liveness_probe():
+    """专用存活探针 - 最快速响应"""
+    return "OK", 200
+
+@app.route("/readiness", methods=["GET"])
+def readiness_probe():
+    """就绪探针 - 检查服务是否准备好接收请求"""
+    running_tasks = task_manager.get_running_tasks()
+    if len(running_tasks) > 1:  # 如果有太多任务运行，可能不够ready
+        return jsonify({"status": "not_ready", "reason": "too_many_running_tasks"}), 503
+    return jsonify({"status": "ready"}), 200
 
 @app.route("/run", methods=["POST"])
 def run_weekly_reporter():
-    """手动触发WeeklyReporter任务 - 支持完整参数"""
+    """手动触发WeeklyReporter任务 - 优化版本"""
     try:
         # 获取请求参数
         data = request.get_json() if request.is_json else {}
         
-        # 基础参数
+        # 检查是否有太多任务在运行
+        running_tasks = task_manager.get_running_tasks()
+        if len(running_tasks) >= 2:
+            return jsonify({
+                "status": "rejected",
+                "message": "Too many tasks running. Please wait for current tasks to complete.",
+                "running_tasks": len(running_tasks),
+                "timestamp": datetime.now().isoformat()
+            }), 429
+        
+        # 生成任务ID
+        task_id = f"task_{int(time.time())}_{hash(str(data)) % 10000}"
+        
+        # 基础参数处理
         start_date = data.get('start_date')
         end_date = data.get('end_date')
-        days_ago = data.get('days_ago')  # 新增：相对日期参数
+        days_ago = data.get('days_ago')
         partner = data.get('partner')
-        partners = data.get('partners')  # 支持多个partner
+        partners = data.get('partners')
         limit = data.get('limit')
         output = data.get('output')
         
@@ -44,82 +148,95 @@ def run_weekly_reporter():
             sys.stdout.flush()
         
         # 布尔参数
-        save_json = data.get('save_json', True)  # 默认保存JSON
-        upload_feishu = data.get('upload_feishu', True)  # 默认上传飞书
-        send_email = data.get('send_email', True)  # 默认发送邮件
+        save_json = data.get('save_json', True)
+        upload_feishu = data.get('upload_feishu', True)
+        send_email = data.get('send_email', True)
         
         # 构建命令
         cmd = ["python", "main.py"]
         
-        # 添加日期参数
+        # 添加参数
         if start_date:
             cmd.extend(["--start-date", start_date])
         if end_date:
             cmd.extend(["--end-date", end_date])
-            
-        # 添加Partner参数
         if partners and isinstance(partners, list):
-            # 支持多个partner: ["YueMeng", "RAMPUP"]
             partner_str = ",".join(partners)
             cmd.extend(["--partner", partner_str])
         elif partner:
-            # 支持单个partner
             cmd.extend(["--partner", partner])
-            
-        # 添加记录限制
         if limit:
             cmd.extend(["--limit", str(limit)])
-            
-        # 添加输出文件名
         if output:
             cmd.extend(["--output", output])
+        
+        # 创建任务记录
+        task_manager.create_task(task_id, " ".join(cmd), data)
+        
+        def run_task_with_monitoring():
+            """带监控的任务执行函数"""
+            env = os.environ.copy()
+            env['PYTHONUNBUFFERED'] = '1'
             
-        # 添加布尔选项（main.py中默认都是启用的，所以这里不需要特别处理）
-        # save_json, upload_feishu, send_email 在main.py中默认启用
-        
-        # 确保Python输出不被缓冲
-        env = os.environ.copy()
-        env['PYTHONUNBUFFERED'] = '1'
-        
-        def run_in_background():
             try:
-                print(f"🚀 [Cloud Scheduler] 开始执行WeeklyReporter任务")
+                task_manager.update_task(task_id, "running", "Task started, initializing...")
+                print(f"🚀 [Cloud Scheduler] 开始执行WeeklyReporter任务 (ID: {task_id})")
                 print(f"📋 [Cloud Scheduler] 执行命令: {' '.join(cmd)}")
                 print(f"📋 [Cloud Scheduler] 执行参数: {data}")
-                sys.stdout.flush()  # 强制刷新输出
+                sys.stdout.flush()
                 
-                # 修改subprocess调用，让输出直接显示在标准输出中
+                # 执行任务，设置合理的资源限制
+                task_manager.update_task(task_id, "running", "Executing main process...")
                 result = subprocess.run(
                     cmd, 
                     check=True, 
                     text=True,
                     env=env,
-                    # 不捕获输出，让它直接显示在console中
-                    stdout=None,  # 输出到标准输出
-                    stderr=None   # 错误到标准错误
+                    stdout=None,
+                    stderr=None,
+                    timeout=3300  # 55分钟超时，给健康检查留出时间
                 )
                 
-                print(f"✅ [Cloud Scheduler] WeeklyReporter执行成功")
+                task_manager.update_task(task_id, "completed", "Task completed successfully", {
+                    "return_code": result.returncode,
+                    "success": True
+                })
+                print(f"✅ [Cloud Scheduler] WeeklyReporter执行成功 (ID: {task_id})")
                 sys.stdout.flush()
                 
+            except subprocess.TimeoutExpired as e:
+                task_manager.update_task(task_id, "failed", "Task timed out", {
+                    "error": "timeout",
+                    "message": str(e)
+                })
+                print(f"⏰ [Cloud Scheduler] WeeklyReporter执行超时 (ID: {task_id}): {e}")
+                sys.stdout.flush()
             except subprocess.CalledProcessError as e:
-                print(f"❌ [Cloud Scheduler] WeeklyReporter执行失败: {e}")
-                print(f"❌ [Cloud Scheduler] 返回码: {e.returncode}")
+                task_manager.update_task(task_id, "failed", f"Process failed with return code {e.returncode}", {
+                    "error": "process_error",
+                    "return_code": e.returncode,
+                    "message": str(e)
+                })
+                print(f"❌ [Cloud Scheduler] WeeklyReporter执行失败 (ID: {task_id}): {e}")
                 sys.stdout.flush()
             except Exception as e:
-                print(f"❌ [Cloud Scheduler] 执行异常: {str(e)}")
+                task_manager.update_task(task_id, "failed", f"Unexpected error: {str(e)}", {
+                    "error": "unexpected",
+                    "message": str(e)
+                })
+                print(f"❌ [Cloud Scheduler] 执行异常 (ID: {task_id}): {str(e)}")
                 sys.stdout.flush()
         
-        # 立即返回响应，同时启动后台任务
-        print(f"📨 [Cloud Scheduler] 收到调度请求: {data}")
+        # 使用线程池执行任务
+        print(f"📨 [Cloud Scheduler] 收到调度请求 (ID: {task_id}): {data}")
         sys.stdout.flush()
         
-        thread = threading.Thread(target=run_in_background)
-        thread.start()
+        future = executor.submit(run_task_with_monitoring)
         
-        # 构建响应
+        # 立即返回响应
         response = {
             "status": "started",
+            "task_id": task_id,
             "message": "WeeklyReporter task started in background",
             "timestamp": datetime.now().isoformat(),
             "command": " ".join(cmd),
@@ -133,10 +250,13 @@ def run_weekly_reporter():
                 "save_json": save_json,
                 "upload_feishu": upload_feishu,
                 "send_email": send_email
-            }
+            },
+            "estimated_duration": "15-30 minutes",
+            "status_check_url": f"/task/{task_id}"
         }
         
         return jsonify(response)
+        
     except Exception as e:
         error_msg = f"❌ [Cloud Scheduler] 请求处理失败: {str(e)}"
         print(error_msg)
@@ -147,18 +267,66 @@ def run_weekly_reporter():
             "timestamp": datetime.now().isoformat()
         }), 500
 
+@app.route("/task/<task_id>", methods=["GET"])
+def get_task_status(task_id):
+    """获取任务状态"""
+    task = task_manager.get_task(task_id)
+    if not task:
+        return jsonify({"error": "Task not found"}), 404
+    
+    # 计算运行时间
+    if task["start_time"]:
+        if task["end_time"]:
+            duration = (task["end_time"] - task["start_time"]).total_seconds()
+        else:
+            duration = (datetime.now() - task["start_time"]).total_seconds()
+        task["duration_seconds"] = duration
+    
+    return jsonify(task)
+
+@app.route("/tasks", methods=["GET"])
+def list_tasks():
+    """列出所有任务"""
+    limit = request.args.get('limit', 10, type=int)
+    status_filter = request.args.get('status')
+    
+    with task_manager.lock:
+        tasks = list(task_manager.tasks.values())
+    
+    # 过滤状态
+    if status_filter:
+        tasks = [t for t in tasks if t["status"] == status_filter]
+    
+    # 按创建时间排序，最新的在前
+    tasks.sort(key=lambda x: x.get("start_time") or datetime.min, reverse=True)
+    
+    return jsonify({
+        "tasks": tasks[:limit],
+        "total": len(tasks),
+        "filters": {"status": status_filter, "limit": limit}
+    })
+
 @app.route("/status", methods=["GET"])
 def status():
     """服务状态端点"""
+    running_tasks = task_manager.get_running_tasks()
+    
     return jsonify({
         "status": "running",
         "service": "WeeklyReporter",
-        "version": "2.0.0",
-        "description": "Weekly reporting service for Involve Asia data",
+        "version": "2.1.0",
+        "description": "Weekly reporting service for Involve Asia data - Enhanced Edition",
+        "uptime_seconds": (datetime.now() - task_status["server_start_time"]).total_seconds(),
+        "active_tasks": len(running_tasks),
         "endpoints": {
-            "/": "Health check",
-            "/health": "Health check",
+            "/": "Health check (lightweight)",
+            "/health": "Health check (lightweight)",
+            "/health/detailed": "Detailed health check",
+            "/liveness": "Liveness probe",
+            "/readiness": "Readiness probe",
             "/run": "Manual trigger (POST) - supports full parameters",
+            "/task/<id>": "Get task status",
+            "/tasks": "List all tasks",
             "/status": "Service status"
         },
         "supported_parameters": {
@@ -173,6 +341,7 @@ def status():
             "upload_feishu": "Upload to Feishu (boolean, default: true)",
             "send_email": "Send email reports (boolean, default: true)"
         },
+        "last_health_check": task_status["last_health_check"].isoformat() if task_status["last_health_check"] else None,
         "timestamp": datetime.now().isoformat()
     })
 
@@ -182,7 +351,7 @@ def test_endpoint():
     return jsonify({
         "status": "ok",
         "service": "WeeklyReporter",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "environment": {
             "working_directory": os.getcwd(),
             "python_executable": os.path.realpath(os.path.dirname(__file__)),
@@ -233,4 +402,13 @@ def test_logging():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=False) 
+    print(f"🚀 启动 WeeklyReporter Web Server v2.1.0")
+    print(f"📡 端口: {port}")
+    print(f"🔧 最大并发任务: 2")
+    print(f"⏰ 任务超时: 55分钟")
+    print(f"🏥 健康检查端点: /health (轻量), /health/detailed (详细)")
+    print(f"💓 存活探针: /liveness")
+    print(f"✅ 就绪探针: /readiness")
+    sys.stdout.flush()
+    
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True) 
