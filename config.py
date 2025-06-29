@@ -39,10 +39,10 @@ DEFAULT_END_DATE = None    # 使用动态计算（昨天）
 # 默认货币
 PREFERRED_CURRENCY = "USD"
 
-# API请求配置
-REQUEST_TIMEOUT = 15  # 秒
-MAX_RETRY_ATTEMPTS = 3
-REQUEST_DELAY = 1.0  # 请求间隔延迟(秒)
+# API请求配置 - 优化为ByteC长时间任务
+REQUEST_TIMEOUT = 30  # 增加到30秒，提升大数据量请求的稳定性
+MAX_RETRY_ATTEMPTS = 5  # 增加重试次数，提升容错性
+REQUEST_DELAY = 0.5  # 减少请求间隔到0.5秒，提升获取速度
 RATE_LIMIT_DELAY = 30  # 遇到429错误时的等待时间(秒)
 
 # 分页配置

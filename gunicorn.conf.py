@@ -16,10 +16,10 @@ worker_connections = 1000
 max_requests = 0  # 禁用自动重启，避免任务中断
 max_requests_jitter = 0
 
-# Timeouts - 针对健康检查优化
-timeout = 120  # 2分钟超时，给健康检查足够时间
+# Timeouts - 针对长时间任务优化
+timeout = 1800  # 30分钟超时，支持ByteC长时间数据获取任务
 keepalive = 5  # 连接保持时间
-graceful_timeout = 30  # 优雅关闭超时
+graceful_timeout = 60  # 优雅关闭超时增加到60秒
 
 # Memory management
 max_worker_memory = 30000  # 30GB内存限制（我们有32GB）
