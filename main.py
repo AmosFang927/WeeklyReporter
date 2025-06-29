@@ -188,21 +188,31 @@ class WeeklyReporter:
         }
         
         try:
-            # 步骤1&2: 检查是否为 ByteC 多API模式
-            if target_partner == "ByteC":
-                print_step("ByteC多API模式", "检测到 ByteC Partner，启用多API数据获取模式")
+            # 步骤1&2: 智能判断是否需要多API模式
+            use_multi_api_mode = False
+            required_apis = []
+            
+            # 根据target_partner决定API需求
+            if target_partner:
+                # 处理单个或多个Partner的情况
+                if isinstance(target_partner, list):
+                    partner_list = target_partner
+                else:
+                    partner_list = [target_partner]
                 
-                # 获取 ByteC 公司的所有 API 配置
-                bytec_apis = config.get_company_apis("ByteC")
-                if not bytec_apis:
-                    result['error'] = "ByteC 配置错误：未找到对应的API列表"
-                    return result
-                
-                print_step("API准备", f"将从 {len(bytec_apis)} 个API获取数据: {', '.join(bytec_apis)}")
+                # 检查是否需要多API
+                needs_multi, apis = config.needs_multi_api_for_partners(partner_list)
+                if needs_multi:
+                    use_multi_api_mode = True
+                    required_apis = apis
+                    print_step("多API模式", f"检测到Partner({', '.join(partner_list)})需要多API: {', '.join(apis)}")
+            
+            if use_multi_api_mode:
+                print_step("API准备", f"将从 {len(required_apis)} 个API获取数据: {', '.join(required_apis)}")
                 
                 # 构造API配置列表
                 api_configs = []
-                for api_name in bytec_apis:
+                for api_name in required_apis:
                     api_config = get_api_configs().get(api_name)
                     if not api_config:
                         result['error'] = f"API配置错误：未找到 {api_name} 的配置信息"
@@ -246,8 +256,8 @@ class WeeklyReporter:
             
             # 步骤3: 保存JSON（可选）
             if save_json:
-                if target_partner == "ByteC":
-                    # ByteC多API模式：使用自定义保存方法
+                if use_multi_api_mode:
+                    # 多API模式：使用自定义保存方法
                     import json
                     import os
                     from datetime import datetime
@@ -276,7 +286,7 @@ class WeeklyReporter:
                 # 如果没有指定日期，使用默认日期范围
                 actual_start_date, actual_end_date = config.get_default_date_range()
             
-            # 检查是否只处理 ByteC
+            # 检查是否只处理 ByteC（保持向后兼容）
             if target_partner == "ByteC":
                 print_step("ByteC特殊报表", "生成 ByteC 公司专用汇总报表")
                 # 生成 ByteC 报表
@@ -311,7 +321,7 @@ class WeeklyReporter:
                 result['pub_files'] = processor_result.get('pub_files', [])
             
             # 步骤5: 生成主Excel文件（仅适用于标准处理流程）
-            if target_partner != "ByteC":
+            if target_partner != "ByteC":  # 保持ByteC的特殊处理逻辑
                 print_step("主Excel生成", "使用清洗后的数据生成主Excel文件")
                 # 确定输出文件名，如果没有指定则使用日期范围
                 if not output_filename:
@@ -788,21 +798,63 @@ def main():
     # 获取API配置
     api_secret = None
     api_key = None
+    selected_api = None
+    use_multi_api = False
+    required_apis = []
+    
     if args.api:
-        api_configs = get_api_configs()
-        if args.api in api_configs:
-            api_config = api_configs[args.api]
-            api_secret = api_config['api_secret']
-            api_key = api_config['api_key']
-            print(f"🔑 使用API配置: {args.api}")
-        else:
-            print(f"❌ 未找到API配置: {args.api}")
-            sys.exit(1)
+        # 用户手动指定了API
+        selected_api = args.api
+        print(f"🔑 用户指定API配置: {selected_api}")
     else:
-        print("🔑 使用默认API配置")
+        # 根据Partner自动选择API
+        if args.partner:
+            # 解析Partner列表
+            partner_list = [p.strip() for p in args.partner.split(',')]
+            needs_multi, apis = config.needs_multi_api_for_partners(partner_list)
+            
+            if needs_multi:
+                use_multi_api = True
+                required_apis = apis
+                print(f"🔑 根据Partner({', '.join(partner_list)})需要调用多个API: {', '.join(apis)}")
+                # 选择第一个API作为主API（为了兼容性）
+                selected_api = apis[0]
+            else:
+                selected_api = config.get_preferred_api_for_partners(partner_list)
+                print(f"🔑 根据Partner({', '.join(partner_list)})自动选择API: {selected_api}")
+        else:
+            # 没有指定Partner，使用默认API
+            selected_api = config.DEFAULT_API_PLATFORM
+            print(f"🔑 使用默认API配置: {selected_api}")
+    
+    # 获取API配置
+    api_configs = get_api_configs()
+    if selected_api in api_configs:
+        api_config = api_configs[selected_api]
+        api_secret = api_config['api_secret']
+        api_key = api_config['api_key']
+    else:
+        print(f"❌ 未找到API配置: {selected_api}")
+        sys.exit(1)
     
     # 创建WeeklyReporter实例
     reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key)
+    
+    # 设置多API支持
+    if use_multi_api:
+        print(f"📋 配置多API支持: {', '.join(required_apis)}")
+        # 为多API调用准备API列表
+        api_list = []
+        for api_name in required_apis:
+            if api_name in api_configs:
+                api_info = api_configs[api_name]
+                api_list.append({
+                    'name': api_name,
+                    'secret': api_info['api_secret'],
+                    'key': api_info['api_key']
+                })
+        
+        print(f"📊 已配置 {len(api_list)} 个API端点用于数据获取")
     
     try:
         if args.test_feishu:
@@ -911,6 +963,11 @@ def main():
             elif args.send_email:
                 should_send_email = True
                 print("📧 已启用邮件发送 (--send-email)")
+            
+            # 设置多API配置到reporter实例
+            if use_multi_api:
+                reporter.multi_api_configs = api_list
+                print(f"🔧 已为reporter配置多API支持")
             
             # 完整工作流模式 - 默认执行所有流程
             result = reporter.run_full_workflow(

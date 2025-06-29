@@ -170,6 +170,21 @@ COMPANY_APIS = {
     "Webeye": ["LisaidWebeye"]
 }
 
+# =============================================================================
+# Partner 到 API 平台映射配置
+# =============================================================================
+# Partner 到 API 平台映射配置
+# 支持单个API或多个API的配置
+PARTNER_API_MAPPING = {
+    "RAMPUP": ["LisaidByteC"],                    # RAMPUP 使用 LisaidByteC
+    "YueMeng": ["IAByteC"],                       # YueMeng 使用 IAByteC  
+    "ByteC": ["LisaidByteC", "IAByteC"],         # ByteC 使用两个API获取完整数据
+    "TestPartner": ["LisaidByteC"]               # TestPartner 使用 LisaidByteC
+}
+
+# 默认 API 平台（当 Partner 不在映射中时使用）
+DEFAULT_API_PLATFORM = "LisaidByteC"
+
 # 飞书上传配置
 FEISHU_UPLOAD_URL = "https://open.feishu.cn/open-apis/drive/v1/files/upload_all"
 FEISHU_MULTIPART_UPLOAD_URL = "https://open.feishu.cn/open-apis/drive/v1/files/upload_prepare"
@@ -435,6 +450,84 @@ def get_adv_commission_rate(platform_name, avg_commission_rate=None):
     else:
         # 未配置的平台使用默认值0%
         return 0.0
+
+def get_partner_api_platforms(partner_name):
+    """
+    获取 Partner 对应的 API 平台列表
+    
+    Args:
+        partner_name: Partner名称
+    
+    Returns:
+        list: API 平台名称列表
+    """
+    apis = PARTNER_API_MAPPING.get(partner_name, [DEFAULT_API_PLATFORM])
+    # 确保返回的是列表
+    if isinstance(apis, str):
+        return [apis]
+    return apis
+
+def get_partner_api_platform(partner_name):
+    """
+    获取 Partner 对应的主要 API 平台（第一个）
+    保持向后兼容性
+    
+    Args:
+        partner_name: Partner名称
+    
+    Returns:
+        str: 主要 API 平台名称
+    """
+    apis = get_partner_api_platforms(partner_name)
+    return apis[0] if apis else DEFAULT_API_PLATFORM
+
+def get_required_apis_for_partners(partner_list):
+    """
+    根据 Partner 列表获取需要调用的所有 API 平台
+    
+    Args:
+        partner_list: Partner名称列表
+    
+    Returns:
+        list: 需要调用的 API 平台名称列表（去重）
+    """
+    if not partner_list:
+        return [DEFAULT_API_PLATFORM]
+    
+    required_apis = set()
+    for partner in partner_list:
+        apis = get_partner_api_platforms(partner)
+        required_apis.update(apis)
+    
+    return list(required_apis)
+
+def get_preferred_api_for_partners(partner_list):
+    """
+    根据 Partner 列表获取优先使用的 API 平台
+    如果需要多个API，返回第一个（为了向后兼容）
+    
+    Args:
+        partner_list: Partner名称列表
+    
+    Returns:
+        str: 推荐的 API 平台名称
+    """
+    required_apis = get_required_apis_for_partners(partner_list)
+    return required_apis[0] if required_apis else DEFAULT_API_PLATFORM
+
+def needs_multi_api_for_partners(partner_list):
+    """
+    检查指定的 Partner 列表是否需要调用多个 API
+    
+    Args:
+        partner_list: Partner名称列表
+    
+    Returns:
+        bool: 是否需要多个API
+        list: 需要的API列表
+    """
+    required_apis = get_required_apis_for_partners(partner_list)
+    return len(required_apis) > 1, required_apis
 
 def get_pub_commission_rate(partner_name, offer_name):
     """
