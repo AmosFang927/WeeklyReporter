@@ -152,7 +152,7 @@ class WeeklyReporter:
         
         return merged_data
     
-    def run_full_workflow(self, start_date=None, end_date=None, output_filename=None, save_json=False, upload_to_feishu=False, send_email=False, max_records=None, target_partner=None):
+    def run_full_workflow(self, start_date=None, end_date=None, output_filename=None, save_json=False, upload_to_feishu=False, send_email=False, send_self_email=False, max_records=None, target_partner=None):
         """
         运行完整的工作流程
         
@@ -163,6 +163,7 @@ class WeeklyReporter:
             save_json: 是否保存中间JSON文件
             upload_to_feishu: 是否上传到飞书
             send_email: 是否发送邮件
+            send_self_email: 是否发送邮件到默认收件人群组
             max_records: 最大记录数限制
             target_partner: 指定要处理的Partner
         
@@ -371,6 +372,19 @@ class WeeklyReporter:
                 else:
                     print_step("邮件发送失败", f"⚠️ 邮件发送完成：成功 {email_result['total_sent']} 个，失败 {email_result['total_failed']} 个")
             
+            # 步骤7.5: 默认收件人邮件发送（可选）
+            if send_self_email:
+                print_step("默认邮件发送", "开始发送邮件到默认收件人群组")
+                
+                # 发送到默认收件人
+                self_email_result = self.send_self_email(result, actual_start_date, actual_end_date)
+                result['self_email_result'] = self_email_result
+                
+                if self_email_result['success']:
+                    print_step("默认邮件完成", f"✅ 已成功发送 {self_email_result['total_sent']} 个Partner专用邮件到默认收件人")
+                else:
+                    print_step("默认邮件失败", f"❌ 发送到默认收件人失败：成功 {self_email_result.get('total_sent', 0)} 个，失败 {self_email_result.get('total_failed', 0)} 个")
+            
             # 步骤8: 完成
             result['success'] = True
             print_step("工作流完成", "WeeklyReporter工作流执行成功")
@@ -521,6 +535,103 @@ class WeeklyReporter:
                 }
         
         return partner_summary_for_email
+    
+    def send_self_email(self, result, actual_start_date, actual_end_date):
+        """
+        发送Partner专用邮件到默认收件人群组
+        保持Partner邮件内容和逻辑，只改变收件人为默认邮箱
+        
+        Args:
+            result: 工作流执行结果
+            actual_start_date: 实际开始日期
+            actual_end_date: 实际结束日期
+            
+        Returns:
+            dict: 邮件发送结果
+        """
+        print_step("默认邮件发送", "开始发送Partner专用邮件到默认收件人群组...")
+        
+        # 默认收件人
+        default_recipients = ["AmosFang927@gmail.com"]
+        
+        # 准备Partner汇总数据（与正常Partner邮件发送相同的逻辑）
+        partner_summary_for_email = self._prepare_partner_summary_for_email(result)
+        
+        if not partner_summary_for_email:
+            error_msg = "没有找到Partner数据，无法发送邮件"
+            print_step("默认邮件错误", f"❌ {error_msg}")
+            return {'success': False, 'error': error_msg}
+        
+        # 发送结果统计
+        total_sent = 0
+        total_failed = 0
+        send_results = {}
+        
+        # 为每个Partner发送专用邮件到默认收件人
+        for partner_name, partner_data in partner_summary_for_email.items():
+            print_step(f"默认邮件-{partner_name}", f"正在发送{partner_name}专用邮件到默认收件人...")
+            
+            try:
+                # 使用与正常Partner邮件相同的数据准备逻辑
+                email_data = self.email_sender._prepare_partner_email_data(
+                    partner_name, 
+                    partner_data, 
+                    actual_end_date, 
+                    actual_start_date
+                )
+                
+                # 准备附件文件列表（只包含该Partner的文件）
+                file_paths = []
+                if partner_data.get('file_path'):
+                    file_paths.append(partner_data['file_path'])
+                
+                # 获取该Partner的飞书信息
+                feishu_info = self.email_sender._get_partner_feishu_info(
+                    partner_name, 
+                    result.get('feishu_upload')
+                )
+                
+                # 发送Partner专用邮件到默认收件人（使用原有的Partner邮件逻辑）
+                partner_result = self.email_sender._send_single_partner_email(
+                    partner_name,
+                    email_data,
+                    file_paths,
+                    default_recipients,  # 使用默认收件人替代Partner配置的收件人
+                    feishu_info,
+                    actual_end_date
+                )
+                
+                send_results[partner_name] = partner_result
+                
+                if partner_result['success']:
+                    total_sent += 1
+                    print_step(f"默认邮件-{partner_name}", f"✅ 成功发送{partner_name}专用邮件到默认收件人")
+                else:
+                    total_failed += 1
+                    print_step(f"默认邮件-{partner_name}", f"❌ 发送{partner_name}专用邮件失败: {partner_result['error']}")
+                    
+            except Exception as e:
+                total_failed += 1
+                error_msg = f"发送{partner_name}专用邮件异常: {str(e)}"
+                print_step(f"默认邮件-{partner_name}", f"❌ {error_msg}")
+                send_results[partner_name] = {'success': False, 'error': error_msg}
+        
+        # 返回发送结果
+        overall_success = total_failed == 0
+        
+        if overall_success:
+            print_step("默认邮件完成", f"✅ 成功发送 {total_sent} 个Partner专用邮件到默认收件人")
+        else:
+            print_step("默认邮件部分失败", f"⚠️ 邮件发送完成：成功 {total_sent} 个，失败 {total_failed} 个")
+        
+        return {
+            'success': overall_success,
+            'total_sent': total_sent,
+            'total_failed': total_failed,
+            'recipients': default_recipients,
+            'partner_results': send_results,
+            'message': f"发送到默认收件人：成功 {total_sent} 个Partner邮件，失败 {total_failed} 个"
+        }
     
     # 保持向后兼容性的方法别名
     def _prepare_pub_summary_for_email(self, result):
@@ -719,6 +830,9 @@ def create_parser():
   # 处理数据但不发送邮件
   python main.py --no-email
 
+  # 发送邮件到默认收件人群组（AmosFang927@gmail.com）
+  python main.py --self-email
+
   # 测试飞书API连接
   python main.py --test-feishu
         ''')
@@ -763,6 +877,8 @@ def create_parser():
                        help='测试飞书API连接')
     parser.add_argument('--send-email', action='store_true',
                        help='发送邮件报告')
+    parser.add_argument('--self-email', action='store_true',
+                       help='发送邮件到默认收件人群组 (AmosFang927@gmail.com)')
     parser.add_argument('--no-email', action='store_true',
                        help='不发送邮件给任何Partners')
     parser.add_argument('--test-email', action='store_true',
@@ -957,9 +1073,15 @@ def main():
             
             # 确定是否发送邮件
             should_send_email = True  # 默认发送邮件
+            should_send_self_email = False  # 默认不发送到默认收件人
+            
             if args.no_email:
                 should_send_email = False
                 print("📧 已禁用邮件发送 (--no-email)")
+            elif args.self_email:
+                should_send_email = False  # 禁用常规邮件
+                should_send_self_email = True  # 启用默认收件人邮件
+                print("📧 已启用发送到默认收件人 (--self-email)")
             elif args.send_email:
                 should_send_email = True
                 print("📧 已启用邮件发送 (--send-email)")
@@ -977,6 +1099,7 @@ def main():
                 save_json=True,  # 默认保存JSON
                 upload_to_feishu=True,  # 默认上传到飞书
                 send_email=should_send_email,  # 根据参数决定是否发送邮件
+                send_self_email=should_send_self_email,  # 根据参数决定是否发送到默认收件人
                 max_records=args.limit,  # 数据限制
                 target_partner=target_partners  # Partner过滤（支持单个或多个）
             )
