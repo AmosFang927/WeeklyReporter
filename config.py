@@ -78,6 +78,12 @@ PARTNER_SOURCES_MAPPING = {
         "email_enabled": False,  # 邮件发送开关
         "email_recipients": ["AmosFang927+TestPub@gmail.com"]  # 收件人列表
     },
+    "MKK": {
+        "sources": ["MKK"],  # MKK source
+        "pattern": r"^MKK.*",  # 匹配以MKK开头的所有Sources
+        "email_enabled": True,  # 邮件发送开关
+        "email_recipients": ["AmosFang927@gmail.com"]  # 收件人列表（请修改为实际的MKK邮箱）
+    },
     "ByteC": {
         "sources": ["ALL"],  # ByteC 处理所有数据，不限制 Sources
         "pattern": r".*",  # 匹配所有 Sources
@@ -144,6 +150,14 @@ PUB_COMMISSION_RATE_MAPPING = {
     # ByteC Partner配置
     ("ByteC", "Shopee ID (Media Buyers) - CPS"): 1.0,  # 默认1%
     
+    # MKK Partner配置
+    ("MKK", "Shopee ID (Media Buyers) - CPS"): 1.0,  # 默认1%
+    ("MKK", "Shopee PH - CPS"): 1.0,  # 默认1%
+    ("MKK", "Shopee TH - CPS"): 1.0,  # 默认1%
+    ("MKK", "Shopee MY - CPS"): 1.0,  # 默认1%
+    ("MKK", "Shopee VN - CPS"): 1.0,  # 默认1%
+    ("MKK", "TikTok Shop ID - CPS"): 1.0,  # 默认1%
+    
     # 其他组合的默认值在get_pub_commission_rate函数中处理
 }
 
@@ -179,7 +193,8 @@ PARTNER_API_MAPPING = {
     "RAMPUP": ["LisaidByteC"],                    # RAMPUP 使用 LisaidByteC
     "YueMeng": ["IAByteC"],                       # YueMeng 使用 IAByteC  
     "ByteC": ["LisaidByteC", "IAByteC"],         # ByteC 使用两个API获取完整数据
-    "TestPartner": ["LisaidByteC"]               # TestPartner 使用 LisaidByteC
+    "TestPartner": ["LisaidByteC"],               # TestPartner 使用 LisaidByteC
+    "MKK": ["LisaidByteC"]                       # MKK 使用 LisaidByteC
 }
 
 # 默认 API 平台（当 Partner 不在映射中时使用）
