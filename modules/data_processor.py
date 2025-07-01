@@ -88,12 +88,20 @@ class DataProcessor:
             if 'data' in json_data and 'data' in json_data['data']:
                 conversion_records = json_data['data']['data']
                 self.original_data = pd.DataFrame(conversion_records)
+            elif 'data' in json_data and 'conversions' in json_data['data']:
+                # 支持多API合并格式
+                conversion_records = json_data['data']['conversions']
+                self.original_data = pd.DataFrame(conversion_records)
             else:
                 raise ValueError("JSON数据格式不正确")
         elif isinstance(data_source, dict):
             # 直接处理字典格式的JSON数据
             if 'data' in data_source and 'data' in data_source['data']:
                 conversion_records = data_source['data']['data']
+                self.original_data = pd.DataFrame(conversion_records)
+            elif 'data' in data_source and 'conversions' in data_source['data']:
+                # 支持多API合并格式
+                conversion_records = data_source['data']['conversions']
                 self.original_data = pd.DataFrame(conversion_records)
             else:
                 raise ValueError("JSON数据格式不正确")

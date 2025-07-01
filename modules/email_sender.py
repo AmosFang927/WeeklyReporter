@@ -290,7 +290,7 @@ class EmailSender:
             
             wb.close()
             
-            formatted_amount = f"${total_amount:.2f}"
+            formatted_amount = f"${total_amount:,.2f}"
             print_step("金额计算", f"💰 {os.path.basename(file_path)} 总销售额: {formatted_amount}")
             print_step("金额详情", f"各Sheet明细:\n" + "\n".join(sheet_details))
             
@@ -332,7 +332,7 @@ class EmailSender:
                 
                 if sales_amount_col and len(df) > 0:
                     sales_amount = df[sales_amount_col].sum()
-                    formatted_amount = f"${sales_amount:.2f}"
+                    formatted_amount = f"${sales_amount:,.2f}"
                 else:
                     formatted_amount = '$0.00'
                 
@@ -486,7 +486,7 @@ class EmailSender:
         body = body.replace('{{partner_name}}', partner_name)  # 注意：这里改为partner_name
         body = body.replace('{{start_date}}', start_date)
         body = body.replace('{{end_date}}', end_date)
-        body = body.replace('{{total_records}}', str(total_records))
+        body = body.replace('{{total_records}}', f"{total_records:,}")
         body = body.replace('{{total_amount}}', total_amount)
         body = body.replace('{{main_file}}', main_file)
         body = body.replace('{{sources_list}}', sources_list)
@@ -510,7 +510,7 @@ class EmailSender:
             
             html_parts.append(f"<li style='margin: 8px 0; padding: 8px; background-color: #ffffff; border: 1px solid #e9ecef; border-radius: 4px;'>")
             html_parts.append(f"<strong>- {source_name}:</strong> ")
-            html_parts.append(f"Total Conversion: <strong>{records}</strong> 条, ")
+            html_parts.append(f"Total Conversion: <strong>{records:,}</strong> 条, ")
             html_parts.append(f"Total Sales Amount: <span style='color: #28a745; font-weight: bold;'>{sales_amount}</span>")
             html_parts.append("</li>")
         
@@ -551,7 +551,7 @@ class EmailSender:
             <ul style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #007bff;">
                 <li><strong>Partner:</strong> {partner_name}</li>
                 <li><strong>Date Range:</strong> {start_date} 至 {end_date}</li>
-                <li><strong>Total Conversion:</strong> {total_records} 条</li>
+                <li><strong>Total Conversion:</strong> {total_records:,} 条</li>
                 <li><strong>Total Sales Amount:</strong> {total_amount}</li>
                 <li><strong>Sources:</strong> {sources_list}</li>
             </ul>
@@ -617,7 +617,7 @@ class EmailSender:
             <h3 style="color: #1f4e79;">📊 报告摘要:</h3>
             <ul style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #007bff;">
                 <li><strong>日期范围:</strong> {start_date} 至 {end_date}</li>
-                <li><strong>总转换数:</strong> {total_records} 条</li>
+                <li><strong>总转换数:</strong> {total_records:,} 条</li>
                 <li><strong>Total Sales Amount:</strong> {total_amount}</li>
             </ul>
             
@@ -636,7 +636,7 @@ class EmailSender:
                 filename = pub_file_info.get('filename', '')
                 records = pub_file_info.get('records', 0)
                 amount = pub_file_info.get('amount', '$0.00')
-                body += f"<li><strong>{filename}:</strong> ({records}条, {amount})</li>"
+                body += f"<li><strong>{filename}:</strong> ({records:,}条, {amount})</li>"
             else:
                 # 如果是文件路径字符串
                 filename = os.path.basename(pub_file_info)
@@ -808,7 +808,7 @@ class EmailSender:
         body = body.replace('{{feishu_section}}', feishu_section)
         
         # ByteC Company Level Summary
-        body = body.replace('{{company_total_conversion}}', str(bytec_data['company']['total_conversion']))
+        body = body.replace('{{company_total_conversion}}', f"{bytec_data['company']['total_conversion']:,}")
         body = body.replace('{{company_total_sales}}', bytec_data['company']['total_sales'])
         body = body.replace('{{company_total_earning}}', bytec_data['company']['total_earning'])
         body = body.replace('{{company_total_adv_commission}}', bytec_data['company']['total_adv_commission'])
@@ -1236,7 +1236,7 @@ class EmailSender:
             <tr>
                 <td><strong>{idx}</strong></td>
                 <td><strong>{item['partner_source']}</strong></td>
-                <td>{item['conversion']}</td>
+                <td>{item['conversion']:,}</td>
                 <td><span class="amount">{item['sales_amount']}</span></td>
                 <td><span class="amount">{item['estimated_earning']}</span></td>
             </tr>
@@ -1256,7 +1256,7 @@ class EmailSender:
             <tr>
                 <td><strong>{idx}</strong></td>
                 <td><strong>{item['offer_name']}</strong></td>
-                <td>{item['conversion']}</td>
+                <td>{item['conversion']:,}</td>
                 <td><span class="amount">{item['sales_amount']}</span></td>
                 <td><span class="amount">{item['estimated_earning']}</span></td>
             </tr>

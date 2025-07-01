@@ -145,7 +145,7 @@ class JSONToExcelConverter:
     
     def _export_excel_with_currency_format(self, data, filepath):
         """
-        导出Excel并为sale_amount栏位设置美元货币格式
+        导出Excel并为所有数字字段设置千分位格式
         
         Args:
             data: 要导出的DataFrame
@@ -162,20 +162,74 @@ class JSONToExcelConverter:
             cleaned_row = self._clean_row_data(r)
             ws.append(cleaned_row)
         
-        # 查找sale_amount列的索引
-        sale_amount_col = None
-        if 'sale_amount' in data.columns:
-            sale_amount_col = data.columns.get_loc('sale_amount') + 1  # Excel列索引从1开始
-            
-            # 应用货币格式到sale_amount列（跳过标题行）
-            for row in range(2, len(data) + 2):  # 从第2行开始（第1行是标题）
-                cell = ws.cell(row=row, column=sale_amount_col)
-                cell.number_format = '"$"#,##0.00'
-            
-            print_step("货币格式", f"已为sale_amount栏位设置美元货币格式")
+        # 为所有数字字段设置千分位格式
+        self._apply_number_formatting(ws, data)
         
         # 保存文件
         wb.save(filepath)
+    
+    def _apply_number_formatting(self, worksheet, data):
+        """
+        为Excel工作表中的所有数字字段应用千分位格式
+        
+        Args:
+            worksheet: Excel工作表对象
+            data: DataFrame数据
+        """
+        format_count = 0
+        
+        # 定义字段格式映射
+        number_format_mapping = {
+            # 金额字段 - 美元格式，千分位，两位小数
+            'sale_amount': '"$"#,##0.00',
+            'estimated_earning': '"$"#,##0.00',
+            'adv_commission': '"$"#,##0.00',
+            'pub_commission': '"$"#,##0.00',
+            'bytec_commission': '"$"#,##0.00',
+            'payout': '"$"#,##0.00',
+            'base_payout': '"$"#,##0.00',
+            'bonus_payout': '"$"#,##0.00',
+            
+            # 整数字段 - 千分位，无小数
+            'conversion_id': '#,##0',
+            'click_id': '#,##0',
+            'transaction_id': '#,##0',
+            'advertiser_id': '#,##0',
+            'publisher_id': '#,##0',
+            'offer_id': '#,##0',
+            'campaign_id': '#,##0',
+            'count': '#,##0',
+            'clicks': '#,##0',
+            'conversions': '#,##0',
+            
+            # 小数字段 - 千分位，两位小数
+            'conversion_rate': '#,##0.00',
+            'commission_rate': '#,##0.00',
+            'price': '#,##0.00',
+            'value': '#,##0.00',
+            
+            # 百分比字段 - 百分比格式
+            'roi': '0.00%',
+            'bytec_roi': '0.00%',
+            'commission_percentage': '0.00%',
+            'discount_rate': '0.00%'
+        }
+        
+        # 遍历所有列，应用格式
+        for col_name in data.columns:
+            if col_name in number_format_mapping:
+                col_index = data.columns.get_loc(col_name) + 1  # Excel列索引从1开始
+                number_format = number_format_mapping[col_name]
+                
+                # 应用格式到该列的所有数据行（跳过标题行）
+                for row in range(2, len(data) + 2):  # 从第2行开始（第1行是标题）
+                    cell = worksheet.cell(row=row, column=col_index)
+                    cell.number_format = number_format
+                
+                format_count += 1
+                print_step("数字格式", f"已为 {col_name} 字段设置千分位格式: {number_format}")
+        
+        print_step("格式化完成", f"✅ 成功为 {format_count} 个数字字段设置千分位格式")
     
     def _clean_row_data(self, row):
         """
