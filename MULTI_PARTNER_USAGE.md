@@ -36,9 +36,12 @@ python main.py --start-date 2025-06-17 --end-date 2025-06-18 --partner RAMPUP,Yu
 python main.py --limit 100 --start-date 2025-06-17 --end-date 2025-06-18 --partner RAMPUP,YueMeng
 ```
 
-### 4. 不指定Partner（处理所有Partner）
+### 4. 处理所有Partner
 ```bash
-# 处理所有已配置的Partner
+# 明确指定处理所有Partner
+python main.py --partner all
+
+# 不指定Partner（默认处理所有Partner）
 python main.py
 ```
 
@@ -47,6 +50,7 @@ python main.py
 ### --partner 参数说明
 - **单个Partner**: `--partner RAMPUP`
 - **多个Partner**: `--partner RAMPUP,YueMeng`（用逗号分隔，不要有空格）
+- **所有Partner**: `--partner all`（明确指定处理所有Partner）
 - **包含空格的处理**: 系统会自动去除Partner名称前后的空格
 - **无效Partner**: 如果指定的Partner不存在，系统会显示警告并跳过
 
@@ -54,6 +58,8 @@ python main.py
 当前系统支持以下Partner（在`config.py`中配置）：
 - `RAMPUP` - 包含RAMPUP、RPID*等Sources
 - `YueMeng` - 包含OEM2、OEM3等Sources  
+- `MKK` - 包含MKK等Sources
+- `ByteC` - 特殊报表Partner，处理所有Sources
 - `TestPartner` - 测试用Partner
 
 ## 处理逻辑

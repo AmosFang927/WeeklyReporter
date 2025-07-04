@@ -22,12 +22,12 @@ import config
 class WeeklyReporter:
     """周报生成器主类"""
     
-    def __init__(self, api_secret=None, api_key=None):
+    def __init__(self, api_secret=None, api_key=None, global_email_disabled=False):
         self.api_client = InvolveAsiaAPI(api_secret=api_secret, api_key=api_key)
         self.converter = JSONToExcelConverter()
         self.data_processor = DataProcessor()
         self.feishu_uploader = FeishuUploader()
-        self.email_sender = EmailSender()
+        self.email_sender = EmailSender(global_email_disabled=global_email_disabled)
         self.bytec_generator = ByteCReportGenerator(api_secret=api_secret)
         self.scheduler = None
     
@@ -51,12 +51,20 @@ class WeeklyReporter:
         api_success_count = 0
         total_records = 0
         
-        for api_config in api_list:
+        for i, api_config in enumerate(api_list, 1):
             api_name = api_config['name']
             api_secret = api_config['secret']
             api_key = api_config['key']
             
-            print_step(f"API-{api_name}", f"正在获取 {api_name} 数据...")
+            print()
+            print("=" * 60)
+            print(f"🚀 API {i}/{len(api_list)}: {api_name}")
+            print("=" * 60)
+            print_step(f"API-{api_name}", f"开始获取 {api_name} 数据...")
+            
+            # 强制刷新输出
+            import sys
+            sys.stdout.flush()
             
             try:
                 # 创建临时API客户端
@@ -68,14 +76,22 @@ class WeeklyReporter:
                     config.MAX_RECORDS_LIMIT = max_records
                 
                 # 认证
+                print_step(f"API-{api_name}", f"开始认证...")
+                sys.stdout.flush()
                 if not temp_client.authenticate():
                     error_msg = f"API认证失败: {api_name}"
                     api_errors.append(error_msg)
                     print_step(f"API-{api_name}", f"❌ {error_msg}")
                     continue
+                print_step(f"API-{api_name}", f"认证成功，开始获取数据...")
+                sys.stdout.flush()
                 
                 # 获取数据
-                api_data = temp_client.get_conversions(start_date, end_date)
+                print_step(f"API-{api_name}", f"调用get_conversions方法...")
+                sys.stdout.flush()
+                api_data = temp_client.get_conversions(start_date, end_date, api_name=api_name)
+                print_step(f"API-{api_name}", f"get_conversions方法执行完成")
+                sys.stdout.flush()
                 
                 # 恢复原始限制
                 config.MAX_RECORDS_LIMIT = original_limit
@@ -99,16 +115,24 @@ class WeeklyReporter:
                 
                 record_count = len(conversions) if isinstance(conversions, list) else 0
                 
-                # 为每条记录添加API来源标记
-                for conversion in conversions:
-                    conversion['api_source'] = api_name
-                    conversion['api_platform'] = config.get_platform_from_api_secret(api_secret)
+                # 为每条记录添加API来源标记（只有在需要ByteC报表时才添加）
+                should_add_api_fields = self._should_add_api_source_fields()
+                if should_add_api_fields:
+                    for conversion in conversions:
+                        conversion['api_source'] = api_name
+                        conversion['api_platform'] = config.get_platform_from_api_secret(api_secret)
+                    print_step(f"API-{api_name}", f"为ByteC报表添加API来源标记: {api_name}")
+                else:
+                    print_step(f"API-{api_name}", f"非ByteC报表模式，跳过API来源标记")
                 
                 all_conversions.extend(conversions)
                 total_records += record_count
                 api_success_count += 1
                 
                 print_step(f"API-{api_name}", f"✅ 成功获取 {record_count:,} 条记录")
+                print("=" * 60)
+                print(f"✅ API {i}/{len(api_list)} ({api_name}) 完成")
+                print("=" * 60)
                 
             except Exception as e:
                 error_msg = f"API异常: {api_name} - {str(e)}"
@@ -128,6 +152,27 @@ class WeeklyReporter:
             
             raise Exception(f"{error_summary}。错误详情: {'; '.join(api_errors)}")
         
+        # 构造API统计信息
+        should_add_api_fields = self._should_add_api_source_fields()
+        if should_add_api_fields:
+            # 纯ByteC模式：基于api_source字段进行统计
+            api_breakdown = {api['name']: len([c for c in all_conversions if c.get('api_source') == api['name']]) 
+                           for api in api_list}
+        else:
+            # 非纯ByteC模式：基于API调用顺序进行估算（因为没有api_source字段）
+            api_breakdown = {}
+            current_index = 0
+            for i, api_config in enumerate(api_list):
+                # 简单估算：假设每个API获取的记录数相对均匀
+                if i < len(api_list) - 1:
+                    # 不是最后一个API，计算平均分配
+                    api_records = total_records // len(api_list)
+                else:
+                    # 最后一个API，包含剩余的所有记录
+                    api_records = total_records - current_index
+                api_breakdown[api_config['name']] = api_records
+                current_index += api_records
+        
         # 构造合并后的数据结构
         merged_data = {
             'data': {
@@ -139,8 +184,8 @@ class WeeklyReporter:
                     'total_apis': len(api_list),
                     'successful_apis': api_success_count,
                     'total_records': total_records,
-                    'api_breakdown': {api['name']: len([c for c in all_conversions if c['api_source'] == api['name']]) 
-                                    for api in api_list}
+                    'api_breakdown': api_breakdown,
+                    'has_api_source_fields': should_add_api_fields
                 }
             },
             'success': True,
@@ -151,6 +196,72 @@ class WeeklyReporter:
         print_step("API数据分布", f"数据分布: {merged_data['data']['merge_info']['api_breakdown']}")
         
         return merged_data
+    
+    def _is_bytec_processing(self):
+        """
+        判断当前是否在处理ByteC Partner
+        
+        Returns:
+            bool: 如果当前target_partner是ByteC则返回True，否则返回False
+        """
+        # 从config中获取当前的TARGET_PARTNER设置
+        target_partner = getattr(config, 'TARGET_PARTNER', None)
+        
+        if target_partner is None:
+            return False
+        
+        # 处理单个Partner和多个Partner的情况
+        if isinstance(target_partner, str):
+            return target_partner == "ByteC"
+        elif isinstance(target_partner, list):
+            return "ByteC" in target_partner
+        
+        return False
+    
+    def _should_process_bytec(self, target_partner):
+        """
+        判断是否需要处理ByteC Partner
+        
+        Args:
+            target_partner: 目标Partner，可以是字符串、列表或None
+            
+        Returns:
+            bool: 如果需要处理ByteC则返回True，否则返回False
+        """
+        if target_partner is None:
+            # None表示处理所有Partner，包括ByteC
+            return True
+        
+        # 处理单个Partner和多个Partner的情况
+        if isinstance(target_partner, str):
+            return target_partner == "ByteC"
+        elif isinstance(target_partner, list):
+            return "ByteC" in target_partner
+        
+        return False
+    
+    def _should_add_api_source_fields(self):
+        """
+        判断是否需要在数据中添加api_source和api_platform字段
+        这些字段只有在ByteC报表中才需要，标准Partner报表不需要
+        
+        Returns:
+            bool: 如果需要添加API字段则返回True，否则返回False
+        """
+        # 从config中获取当前的TARGET_PARTNER设置
+        target_partner = getattr(config, 'TARGET_PARTNER', None)
+        
+        if target_partner is None:
+            return False
+        
+        # 只有在纯ByteC模式下才添加API字段
+        # 多Partner模式下，即使包含ByteC，也不在原始数据中添加这些字段
+        # ByteC报表生成器会自己处理API信息
+        if isinstance(target_partner, str):
+            return target_partner == "ByteC"
+        else:
+            # 多Partner模式下不添加API字段
+            return False
     
     def run_full_workflow(self, start_date=None, end_date=None, output_filename=None, save_json=False, upload_to_feishu=False, send_email=False, send_self_email=False, max_records=None, target_partner=None):
         """
@@ -287,8 +398,12 @@ class WeeklyReporter:
                 # 如果没有指定日期，使用默认日期范围
                 actual_start_date, actual_end_date = config.get_default_date_range()
             
-            # 检查是否只处理 ByteC（保持向后兼容）
-            if target_partner == "ByteC":
+            # 检查是否需要处理ByteC（支持单个和多个Partner模式）
+            should_process_bytec = self._should_process_bytec(target_partner)
+            is_bytec_only = target_partner == "ByteC"
+            
+            if is_bytec_only:
+                # 纯ByteC模式：只生成ByteC报表
                 print_step("ByteC特殊报表", "生成 ByteC 公司专用汇总报表")
                 # 生成 ByteC 报表
                 bytec_file = self.bytec_generator.generate_bytec_report(
@@ -320,9 +435,31 @@ class WeeklyReporter:
                 )
                 result['processing_summary'] = processor_result
                 result['pub_files'] = processor_result.get('pub_files', [])
+                
+                # 如果需要处理ByteC，在标准处理后生成ByteC报表
+                if should_process_bytec:
+                    print_step("ByteC额外报表", "在标准处理基础上生成 ByteC 公司专用汇总报表")
+                    bytec_file = self.bytec_generator.generate_bytec_report(
+                        conversion_data, 
+                        actual_start_date, 
+                        actual_end_date
+                    )
+                    result['bytec_file'] = bytec_file
+                    # 将ByteC文件添加到pub_files列表中
+                    if result['pub_files'] is None:
+                        result['pub_files'] = []
+                    result['pub_files'].append(bytec_file)
+                    
+                    # 在处理摘要中添加ByteC信息
+                    if 'partner_summary' not in result['processing_summary']:
+                        result['processing_summary']['partner_summary'] = {}
+                    result['processing_summary']['partner_summary']['ByteC'] = {
+                        'records': conversion_data['data']['current_page_count'], 
+                        'amount_formatted': '$0.00'
+                    }
             
             # 步骤5: 生成主Excel文件（仅适用于标准处理流程）
-            if target_partner != "ByteC":  # 保持ByteC的特殊处理逻辑
+            if not is_bytec_only:  # 只有在非纯ByteC模式下才生成主Excel文件
                 print_step("主Excel生成", "使用清洗后的数据生成主Excel文件")
                 # 确定输出文件名，如果没有指定则使用日期范围
                 if not output_filename:
@@ -809,6 +946,9 @@ def create_parser():
   # 处理多个Partner（例如RAMPUP和YueMeng）
   python main.py --partner RAMPUP,YueMeng
 
+  # 处理所有Partner
+  python main.py --partner all
+
   # 组合使用：指定API和限制记录数
   python main.py --api LisaidWebeye --limit 100 --partner RAMPUP --start-date 2025-06-17 --end-date 2025-06-18
 
@@ -852,7 +992,7 @@ def create_parser():
     parser.add_argument('--limit', type=int,
                        help='最大记录数限制，例如 --limit 100 表示最多获取100条记录')
     parser.add_argument('--partner', type=str,
-                       help='指定要处理的Partner，支持单个或多个（用逗号分隔），例如 --partner RAMPUP 或 --partner RAMPUP,YueMeng，默认处理所有Partner')
+                       help='指定要处理的Partner，支持单个或多个（用逗号分隔），例如 --partner RAMPUP 或 --partner RAMPUP,YueMeng，使用 --partner all 处理所有Partner，默认处理所有Partner')
     
     # 输出文件名
     parser.add_argument('--output', '-o', type=str,
@@ -954,7 +1094,12 @@ def main():
         sys.exit(1)
     
     # 创建WeeklyReporter实例
-    reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key)
+    # 先检查是否使用了--no-email参数
+    global_email_disabled = False
+    if hasattr(args, 'no_email') and args.no_email:
+        global_email_disabled = True
+    
+    reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key, global_email_disabled=global_email_disabled)
     
     # 设置多API支持
     if use_multi_api:
@@ -975,21 +1120,21 @@ def main():
     try:
         if args.test_feishu:
             # 测试飞书连接
-            test_reporter = WeeklyReporter()  # 测试功能不需要API配置
+            test_reporter = WeeklyReporter(global_email_disabled=True)  # 测试功能不需要API配置，禁用邮件
             success = test_reporter.feishu_uploader.test_connection()
             print(f"\n{'✅ 飞书连接测试成功' if success else '❌ 飞书连接测试失败'}")
             sys.exit(0 if success else 1)
             
         elif args.test_email:
             # 测试邮件连接
-            test_reporter = WeeklyReporter()  # 测试功能不需要API配置
+            test_reporter = WeeklyReporter(global_email_disabled=True)  # 测试功能不需要API配置，禁用邮件
             success = test_reporter.email_sender.test_connection()
             print(f"\n{'✅ 邮件连接测试成功' if success else '❌ 邮件连接测试失败'}")
             sys.exit(0 if success else 1)
             
         elif args.start_scheduler:
             # 启动定时任务
-            scheduler_reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key)  # 调度器需要API配置
+            scheduler_reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key, global_email_disabled=False)  # 调度器需要API配置，保持邮件功能
             scheduler_reporter.scheduler = ReportScheduler(scheduler_reporter)
             scheduler_reporter.scheduler.start()
             
@@ -1009,7 +1154,7 @@ def main():
                 
         elif args.run_scheduler_now:
             # 立即执行定时任务
-            scheduler_reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key)  # 调度器需要API配置
+            scheduler_reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key, global_email_disabled=False)  # 调度器需要API配置，保持邮件功能
             scheduler = ReportScheduler(scheduler_reporter)
             scheduler.run_now()
             sys.exit(0)
@@ -1056,20 +1201,26 @@ def main():
             # 处理多个Partner的情况
             target_partners = None
             if args.partner:
-                # 支持用逗号分隔和加号分隔的多个Partner
-                partner_string = args.partner
-                # 先按逗号分隔，再按加号分隔
-                all_partners = []
-                for part in partner_string.split(','):
-                    for p in part.split('+'):
-                        p = p.strip()
-                        if p:
-                            all_partners.append(p)
-                
-                target_partners = all_partners
-                if len(target_partners) == 1:
-                    target_partners = target_partners[0]  # 单个Partner保持字符串格式
-                print(f"📋 指定处理的Partner: {target_partners}")
+                # 检查是否为 'all' 关键字
+                if args.partner.lower() == 'all':
+                    # 处理所有Partner
+                    target_partners = None  # None表示处理所有Partner
+                    print("📋 指定处理所有Partner (--partner all)")
+                else:
+                    # 支持用逗号分隔和加号分隔的多个Partner
+                    partner_string = args.partner
+                    # 先按逗号分隔，再按加号分隔
+                    all_partners = []
+                    for part in partner_string.split(','):
+                        for p in part.split('+'):
+                            p = p.strip()
+                            if p:
+                                all_partners.append(p)
+                    
+                    target_partners = all_partners
+                    if len(target_partners) == 1:
+                        target_partners = target_partners[0]  # 单个Partner保持字符串格式
+                    print(f"📋 指定处理的Partner: {target_partners}")
             
             # 确定是否发送邮件
             should_send_email = True  # 默认发送邮件

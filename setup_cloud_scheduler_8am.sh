@@ -6,19 +6,20 @@
 # 配置变量
 PROJECT_ID="solar-idea-463423-h8"
 REGION="asia-east1"
-JOB_NAME="weeklyreporter-daily-8am"
+JOB_NAME="weeklyreporter-daily-8am-rampup"
 CLOUD_RUN_URL="https://weeklyreporter-crwdeesavq-de.a.run.app/run"
 SCHEDULE="0 8 * * *"  # 每天上午8点
 TIME_ZONE="Asia/Hong_Kong"
-DESCRIPTION="WeeklyReporter 每日上午8点执行 - 处理2天前数据"
+DESCRIPTION="WeeklyReporter 每日上午8点执行 - 处理RAMPUP合作伙伴2天前数据"
 
-echo "🚀 开始设置Google Cloud Scheduler (8AM Daily)"
+echo "🚀 开始设置Google Cloud Scheduler (8AM Daily - RAMPUP Only)"
 echo "================================================"
 echo "项目ID: $PROJECT_ID"
 echo "区域: $REGION" 
 echo "任务名称: $JOB_NAME"
-echo "执行时间: 每天上午8点 (Hong Kong时区)"
+echo "执行时间: 每天上午8点 (Hong Kong时区 GMT+8)"
 echo "目标URL: $CLOUD_RUN_URL"
+echo "合作伙伴: RAMPUP"
 echo "数据范围: 2天前"
 echo "================================================"
 
@@ -41,11 +42,10 @@ fi
 # 创建新的调度任务
 echo "📅 创建新的Cloud Scheduler任务..."
 
-# 创建HTTP请求体 - 使用相对日期参数（动态计算）
+# 创建HTTP请求体 - 只处理RAMPUP合作伙伴，无数据限制
 REQUEST_BODY='{
-    "partners": ["RAMPUP", "YueMeng"],
+    "partners": ["RAMPUP"],
     "days_ago": 2,
-    "limit": 1000,
     "save_json": true,
     "upload_to_feishu": true,
     "send_email": true
@@ -70,10 +70,10 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "📋 任务详情:"
     echo "   任务名称: $JOB_NAME"
-    echo "   执行时间: 每天上午8点 (Asia/Hong_Kong)"
-    echo "   处理Partners: RAMPUP, YueMeng"
+    echo "   执行时间: 每天上午8点 (Asia/Hong_Kong GMT+8)"
+    echo "   处理Partners: RAMPUP"
     echo "   数据范围: 2天前"
-    echo "   数据限制: 1000条记录"
+    echo "   数据限制: 无限制"
     echo "   邮件发送: ✅ 启用"
     echo "   飞书上传: ✅ 启用"
     echo "   JSON保存: ✅ 启用"
@@ -82,7 +82,7 @@ if [ $? -eq 0 ]; then
     gcloud scheduler jobs describe $JOB_NAME --location=$REGION
     echo ""
     echo "▶️ 下次执行时间:"
-    echo "   明天上午8点 (Asia/Hong_Kong时区)"
+    echo "   明天上午8点 (Asia/Hong_Kong时区 GMT+8)"
     echo ""
     echo "🧪 手动测试任务:"
     echo "   gcloud scheduler jobs run $JOB_NAME --location=$REGION"
@@ -92,4 +92,4 @@ else
 fi
 
 echo ""
-echo "🎉 设置完成！WeeklyReporter将每天上午8点自动运行。" 
+echo "🎉 设置完成！WeeklyReporter将每天上午8点自动运行，只处理RAMPUP合作伙伴。" 

@@ -284,14 +284,26 @@ class ByteCReportGenerator:
     
     def _get_platform_for_group(self, group):
         """获取该组数据的平台名称"""
-        # 在多API模式下，尝试从记录中获取api_source字段
+        # 在纯ByteC模式下，尝试从记录中获取api_source字段
         if 'api_source' in group.columns and not group['api_source'].empty:
             # 获取该组的api_source（应该都是相同的）
             api_source = group['api_source'].iloc[0]
             return api_source
         
-        # 单API模式或没有api_source字段时，使用初始化时的platform_name
-        return self.platform_name
+        # 多Partner模式或没有api_source字段时，需要推断平台
+        # 根据source(aff_sub1)来推断应该使用哪个API平台
+        if not group.empty and 'aff_sub1' in group.columns:
+            source = group['aff_sub1'].iloc[0]
+            # 获取该source对应的实际partner
+            actual_partner = self._get_actual_partner_for_source(source)
+            # 获取该partner对应的API平台列表
+            partner_apis = config.get_partner_api_platforms(actual_partner)
+            if partner_apis:
+                # 使用第一个API平台作为默认值
+                return partner_apis[0]
+        
+        # 最后的后备方案：使用初始化时的platform_name或默认值
+        return self.platform_name or "LisaidByteC"
     
     def _add_total_row(self, worksheet, summary_data):
         """添加汇总行到工作表底部"""

@@ -20,7 +20,7 @@ import pandas as pd
 class EmailSender:
     """邮件发送器"""
     
-    def __init__(self):
+    def __init__(self, global_email_disabled=False):
         self.sender = config.EMAIL_SENDER
         self.default_receivers = config.EMAIL_RECEIVERS
         self.partner_email_mapping = getattr(config, 'PARTNER_EMAIL_MAPPING', config.PUB_EMAIL_MAPPING)  # 新的Partner配置
@@ -36,6 +36,9 @@ class EmailSender:
         self.include_attachments = config.EMAIL_INCLUDE_ATTACHMENTS
         self.include_feishu_links = config.EMAIL_INCLUDE_FEISHU_LINKS
         self.subject_template = config.EMAIL_SUBJECT_TEMPLATE
+        
+        # 全局邮件禁用标志（用于--no-email参数）
+        self.global_email_disabled = global_email_disabled
         
         # 新增超时和重试配置
         self.smtp_timeout = getattr(config, 'EMAIL_SMTP_TIMEOUT', 60)
@@ -66,6 +69,17 @@ class EmailSender:
             dict: 发送结果汇总
         """
         print_step("Partner邮件发送", "开始按Partner分别发送转换报告邮件")
+        
+        # 检查全局邮件禁用标志
+        if self.global_email_disabled:
+            print_step("邮件发送", "⚠️ 全局邮件发送已禁用 (--no-email)，跳过所有Partner邮件发送")
+            return {
+                'success': True,
+                'total_sent': 0,
+                'total_failed': 0,
+                'partner_results': {partner_name: {'success': True, 'skipped': True, 'reason': '全局邮件发送已禁用'} 
+                                  for partner_name in partner_summary.keys()}
+            }
         
         # 检查配置
         if self.password == "your_gmail_app_password_here":

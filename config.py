@@ -191,7 +191,7 @@ COMPANY_APIS = {
 # 支持单个API或多个API的配置
 PARTNER_API_MAPPING = {
     "RAMPUP": ["LisaidByteC"],                    # RAMPUP 使用 LisaidByteC
-    "YueMeng": ["IAByteC"],                       # YueMeng 使用 IAByteC  
+    "YueMeng": ["IAByteC", "LisaidByteC"],        # YueMeng 使用两个API获取完整数据  
     "ByteC": ["LisaidByteC", "IAByteC"],         # ByteC 使用两个API获取完整数据
     "TestPartner": ["LisaidByteC"],               # TestPartner 使用 LisaidByteC
     "MKK": ["LisaidByteC"]                       # MKK 使用 LisaidByteC
