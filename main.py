@@ -115,6 +115,16 @@ class WeeklyReporter:
                 
                 record_count = len(conversions) if isinstance(conversions, list) else 0
                 
+                # 检查是否没有数据 - 这是正常情况，不应该算作错误
+                if record_count == 0:
+                    print_step(f"API-{api_name}", f"⚠️ {api_name} 在指定日期范围内没有数据，跳过该API")
+                    print("=" * 60)
+                    print(f"⚠️ API {i}/{len(api_list)} ({api_name}) 无数据但继续执行")
+                    print("=" * 60)
+                    # 将这个API标记为成功但无数据
+                    api_success_count += 1
+                    continue
+                
                 # 为每条记录添加API来源标记（只有在需要ByteC报表时才添加）
                 should_add_api_fields = self._should_add_api_source_fields()
                 if should_add_api_fields:
@@ -140,10 +150,10 @@ class WeeklyReporter:
                 print_step(f"API-{api_name}", f"❌ {error_msg}")
                 continue
         
-        # 检查是否所有API都成功
-        if api_success_count != len(api_list):
-            failed_count = len(api_list) - api_success_count
-            error_summary = f"多API获取失败: {failed_count}/{len(api_list)} 个API失败"
+        # 检查是否有任何API成功获取了数据
+        if api_success_count == 0:
+            # 所有API都失败了，这是真正的错误
+            error_summary = f"多API获取失败: 所有 {len(api_list)} 个API都失败"
             print_step("多API错误", f"❌ {error_summary}")
             
             # 列出所有错误
@@ -151,6 +161,21 @@ class WeeklyReporter:
                 print_step("API错误详情", f"   • {error}")
             
             raise Exception(f"{error_summary}。错误详情: {'; '.join(api_errors)}")
+        elif api_success_count != len(api_list):
+            # 部分API失败或没有数据，但至少有一个API成功，这是可以接受的
+            failed_count = len(api_list) - api_success_count
+            if api_errors:
+                print_step("多API警告", f"⚠️ 部分API处理异常: {failed_count}/{len(api_list)} 个API失败或无数据")
+                # 列出所有错误
+                for error in api_errors:
+                    print_step("API警告详情", f"   • {error}")
+            else:
+                print_step("多API信息", f"ℹ️ 部分API无数据: {failed_count}/{len(api_list)} 个API在该日期范围内没有数据")
+        
+        # 如果没有获取到任何数据记录，也算是失败
+        if total_records == 0:
+            print_step("多API错误", f"❌ 所有API都没有返回数据")
+            raise Exception("所有API都没有返回数据，请检查日期范围和数据源")
         
         # 构造API统计信息
         should_add_api_fields = self._should_add_api_source_fields()
