@@ -1,0 +1,17 @@
+ByteC Postback - Cloud IAP部署前检查结果
+======================================
+
+检查时间: Sat Jul  5 09:03:06 CST 2025
+用户: amosfang927@gmail.com
+项目: solar-idea-463423-h8
+本地服务端口: 8000
+公网IP: 54.214.104.66
+
+检查结果: 9/10 项通过
+
+下一步:
+可以开始IAP隧道部署
+
+部署命令:
+cd postback_system
+./scripts/stage2_iap_tunnel.sh

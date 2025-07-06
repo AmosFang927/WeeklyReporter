@@ -11,22 +11,46 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# 创建异步数据库引擎
-engine = create_async_engine(
-    get_database_url(),
-    echo=settings.database_echo,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
-    pool_recycle=300
-)
+# 全局变量，延迟初始化
+engine = None
+async_session = None
 
-# 创建异步会话工厂
-async_session = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False
-)
+def get_engine():
+    """获取数据库引擎，延迟初始化"""
+    global engine
+    if engine is None:
+        database_url = get_database_url()
+        logger.info(f"初始化数据库引擎: {database_url}")
+        
+        if "sqlite" in database_url:
+            # SQLite配置
+            engine = create_async_engine(
+                database_url,
+                echo=settings.database_echo,
+                pool_pre_ping=True,
+            )
+        else:
+            # PostgreSQL配置
+            engine = create_async_engine(
+                database_url,
+                echo=settings.database_echo,
+                pool_size=10,
+                max_overflow=20,
+                pool_pre_ping=True,
+                pool_recycle=300
+            )
+    return engine
+
+def get_async_session():
+    """获取异步会话工厂"""
+    global async_session
+    if async_session is None:
+        async_session = async_sessionmaker(
+            get_engine(),
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+    return async_session
 
 # 创建数据模型基类
 Base = declarative_base(
@@ -49,7 +73,8 @@ async def get_db() -> AsyncSession:
     Yields:
         AsyncSession: 数据库会话
     """
-    async with async_session() as session:
+    session_factory = get_async_session()
+    async with session_factory() as session:
         try:
             yield session
         except Exception as e:
@@ -70,6 +95,7 @@ async def init_db():
         # 导入所有模型以确保它们被注册到Base.metadata
         from . import tenant, postback
         
+        engine = get_engine()
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         
@@ -85,8 +111,10 @@ async def close_db():
     关闭数据库连接
     """
     try:
-        await engine.dispose()
-        logger.info("Database connections closed")
+        global engine
+        if engine is not None:
+            await engine.dispose()
+            logger.info("Database connections closed")
     except Exception as e:
         logger.error(f"Error closing database: {e}")
 
@@ -99,7 +127,8 @@ async def check_db_health() -> bool:
         bool: 数据库是否健康
     """
     try:
-        async with async_session() as session:
+        session_factory = get_async_session()
+        async with session_factory() as session:
             await session.execute(text("SELECT 1"))
             return True
     except Exception as e:

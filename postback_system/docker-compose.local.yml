@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: postback_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: postback_db
+      POSTGRES_USER: postback
+      POSTGRES_PASSWORD: postback123
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    networks:
+      - postback_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postback -d postback_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin - 专业的PostgreSQL管理工具
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: postback_pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@postback.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_LISTEN_PORT: 80
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - postback_network
+    depends_on:
+      - postgres
+
+  # Adminer - 轻量级数据库管理工具
+  adminer:
+    image: adminer:latest
+    container_name: postback_adminer
+    restart: always
+    ports:
+      - "8081:8080"
+    networks:
+      - postback_network
+    depends_on:
+      - postgres
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: hydra
+
+  # Redis (缓存服务)
+  redis:
+    image: redis:7-alpine
+    container_name: postback_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - postback_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI 应用 (可选，用于完整测试)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: postback_app
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postback:postback123@postgres:5432/postback_db
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_ECHO=true
+      - DEBUG=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - postback_network
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  redis_data:
+
+networks:
+  postback_network:
+    driver: bridge 

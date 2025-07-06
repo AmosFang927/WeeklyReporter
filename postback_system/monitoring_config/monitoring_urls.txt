@@ -1,0 +1,20 @@
+ByteC Postback 监控访问地址
+===========================
+
+Google Cloud Console:
+- 项目主页: https://console.cloud.google.com/home/dashboard?project=solar-idea-463423-h8
+- Cloud Run服务: https://console.cloud.google.com/run/detail/asia-southeast1/bytec-public-postback?project=solar-idea-463423-h8
+- 日志查看: https://console.cloud.google.com/logs/query?project=solar-idea-463423-h8
+- 监控概览: https://console.cloud.google.com/monitoring/overview?project=solar-idea-463423-h8
+
+服务URL:
+- 服务主页: https://bytec-public-postback-crwdeesavq-as.a.run.app
+- 健康检查: https://bytec-public-postback-crwdeesavq-as.a.run.app/health
+- Postback端点: https://bytec-public-postback-crwdeesavq-as.a.run.app/involve/event
+
+本地监控脚本:
+- 健康检查: ./check_service_health.sh
+- 查看日志: ./view_logs.sh  
+- 性能测试: ./performance_test.sh
+
+生成时间: 2025-07-05 12:37:50

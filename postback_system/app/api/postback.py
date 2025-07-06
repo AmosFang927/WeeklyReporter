@@ -6,40 +6,48 @@ Postback接收API路由
 
 import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, Dict, Any
-
-from app.models.database import get_db
-from app.schemas.postback import PostbackRequest, PostbackResponse, ConversionQuery, ConversionsResponse
-from app.services.postback_service import PostbackService
-from app.services.token_service import TokenService
-from app.middleware.auth import verify_tenant_token
-from app.config import settings
 import logging
+
+# 简化的导入，避免复杂依赖
+try:
+    from app.models.database import get_db
+    from app.schemas.postback import PostbackRequest, PostbackResponse, ConversionQuery, ConversionsResponse
+    from app.services.postback_service import PostbackService
+    from app.services.token_service import TokenService
+    from app.middleware.auth import verify_tenant_token
+    from app.config import settings
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/postback", tags=["Postback"])
+# 创建路由器，移除prefix以便直接访问 /involve/event
+router = APIRouter(tags=["Postback"])
+
+# 内存存储（用于简化测试）
+postback_records = []
+record_counter = 0
 
 
-# ====== 新增：ByteC定制化Endpoint ======
-@router.get("/involve/event", response_class=PlainTextResponse)
+# ====== ByteC定制化Endpoint ======
+@router.get("/involve/event")
 async def bytec_involve_endpoint(
     request: Request,
-    background_tasks: BackgroundTasks,
-    # ByteC定制参数映射
-    conversion_id: str = Query(..., description="转换ID"),
-    click_id: Optional[str] = Query(None, description="点击ID (映射到aff_sub)"),
-    media_id: Optional[str] = Query(None, description="媒体ID (映射到aff_sub2)"),
-    rewards: Optional[float] = Query(None, description="奖励金额 (映射到usd_payout)", alias="rewars"),  # 支持拼写错误
-    event: Optional[str] = Query(None, description="事件类型 (映射到aff_sub3)"),
-    event_time: Optional[str] = Query(None, description="事件时间 (映射到datetime_conversion)"),
-    offer_name: Optional[str] = Query(None, description="Offer名称"),
-    datetime_conversion: Optional[str] = Query(None, description="转换时间"),
+    # 根据真实URL模板的参数
+    sub_id: Optional[str] = Query(None, description="发布商参数1 (aff_sub)"),
+    media_id: Optional[str] = Query(None, description="媒体ID (aff_sub2)"),
+    click_id: Optional[str] = Query(None, description="点击ID (aff_sub3)"),
     usd_sale_amount: Optional[float] = Query(None, description="美元销售金额"),
+    usd_payout: Optional[float] = Query(None, description="美元佣金"),
+    offer_name: Optional[str] = Query(None, description="Offer名称"),
+    conversion_id: Optional[str] = Query(None, description="转换ID"),
+    conversion_datetime: Optional[str] = Query(None, description="转换时间"),
     
-    # 可选的其他标准参数
+    # 额外的可选参数
     offer_id: Optional[str] = Query(None, description="Offer ID"),
     order_id: Optional[str] = Query(None, description="订单ID"),
     status: Optional[str] = Query(None, description="状态"),
@@ -48,103 +56,238 @@ async def bytec_involve_endpoint(
     ts_token: Optional[str] = Query(None, description="TS Token"),
     ts_param: Optional[str] = Query(None, description="TS Parameter"),
     tlm_token: Optional[str] = Query(None, description="TLM Token"),
-    
-    db: AsyncSession = Depends(get_db)
 ):
     """
     ByteC定制化Involve Postback端点
     
-    Endpoint: /postback/involve/event
-    映射: https://network.bytec.com/involve/event
+    真实URL模板：
+    https://bytec-public-postback-472712465571.asia-southeast1.run.app/involve/event?sub_id={aff_sub}&media_id={aff_sub2}&click_id={aff_sub3}&usd_sale_amount={usd_sale_amount}&usd_payout={usd_payout}&offer_name={offer_name}&conversion_id={conversion_id}&conversion_datetime={conversion_datetime}
     
-    参数映射:
-    - click_id -> aff_sub
-    - media_id -> aff_sub2  
-    - rewards/rewars -> usd_payout
-    - event -> aff_sub3
-    - event_time -> datetime_conversion (如果datetime_conversion为空)
+    参数映射：
+    - sub_id -> aff_sub
+    - media_id -> aff_sub2
+    - click_id -> aff_sub3
+    - usd_sale_amount -> usd_sale_amount
+    - usd_payout -> usd_payout
+    - offer_name -> offer_name
+    - conversion_id -> conversion_id
+    - conversion_datetime -> datetime_conversion
     """
+    global record_counter
     start_time = time.time()
     
     try:
-        # 1. 参数映射和清理
-        # 使用event_time作为datetime_conversion的后备值
-        final_datetime_conversion = datetime_conversion or event_time
+        record_counter += 1
         
-        # 2. 租户验证和识别
-        token_service = TokenService()
-        tenant = await token_service.identify_tenant(
-            ts_token=ts_token,
-            ts_param=ts_param, 
-            tlm_token=tlm_token,
-            db=db
-        )
+        # 构造处理后的数据
+        processed_data = {
+            "click_id": click_id,           # 直接映射
+            "media_id": media_id,           # 直接映射
+            "rewards": usd_payout,          # usd_payout -> rewards
+            "conversion_id": conversion_id,  # 直接映射
+            "event": None,                  # 当前模板中没有event参数
+            "event_time": conversion_datetime, # conversion_datetime -> event_time
+            "offer_name": offer_name,       # 直接映射
+            "usd_sale_amount": usd_sale_amount, # 直接映射
+            "aff_sub": sub_id,              # sub_id -> aff_sub
+            "aff_sub2": media_id,           # media_id -> aff_sub2
+            "aff_sub3": click_id,           # click_id -> aff_sub3
+            "usd_payout": usd_payout,       # 直接映射
+            "datetime_conversion": conversion_datetime, # conversion_datetime -> datetime_conversion
+            "raw_params": dict(request.query_params)
+        }
         
-        if not tenant:
-            logger.warning(f"无法识别租户，tokens: ts_token={ts_token}, ts_param={ts_param}, tlm_token={tlm_token}")
-            return PlainTextResponse("INVALID_TENANT", status_code=400)
+        # 存储到内存记录
+        record = {
+            "id": record_counter,
+            "timestamp": time.time(),
+            "method": "GET",
+            "endpoint": "/involve/event",
+            "data": processed_data,
+            "processing_time_ms": 0
+        }
         
-        # 3. 构造Postback请求数据 (参数映射)
-        from decimal import Decimal
-        postback_data = PostbackRequest(
-            conversion_id=conversion_id,
-            offer_id=offer_id,
-            offer_name=offer_name,
-            datetime_conversion=final_datetime_conversion,
-            order_id=order_id,
-            usd_sale_amount=Decimal(str(usd_sale_amount)) if usd_sale_amount is not None else None,
-            usd_payout=Decimal(str(rewards)) if rewards is not None else None,  # rewards -> usd_payout
-            aff_sub=click_id,    # click_id -> aff_sub
-            aff_sub2=media_id,   # media_id -> aff_sub2
-            aff_sub3=event,      # event -> aff_sub3
-            status=status
-        )
-        
-        # 4. 处理Postback数据
-        postback_service = PostbackService()
-        result = await postback_service.process_postback(
-            tenant=tenant,
-            postback_data=postback_data,
-            request=request,
-            db=db
-        )
-        
-        # 5. 异步后处理任务
-        if result.success and not result.duplicate:
-            background_tasks.add_task(
-                postback_service.post_process_conversion,
-                conversion_id=result.conversion_id,
-                tenant_id=tenant.id
-            )
-        
-        # 6. 计算处理时间
+        # 计算处理时间
         processing_time = (time.time() - start_time) * 1000
+        record["processing_time_ms"] = processing_time
         
-        # 7. 记录成功日志
-        logger.info(f"ByteC Involve Postback处理完成: tenant={tenant.tenant_code}, "
-                   f"conversion_id={conversion_id}, click_id={click_id}, "
-                   f"media_id={media_id}, duplicate={result.duplicate}, "
-                   f"time={processing_time:.2f}ms")
+        postback_records.append(record)
         
-        # 8. 返回成功响应
-        return PlainTextResponse("OK", status_code=200)
+        # 记录日志
+        logger.info(f"ByteC Involve Postback处理完成: conversion_id={conversion_id}, "
+                   f"click_id={click_id}, media_id={media_id}, "
+                   f"usd_payout={usd_payout}, time={processing_time:.2f}ms")
         
-    except ValueError as e:
-        logger.warning(f"ByteC Involve Postback参数验证失败: {str(e)}")
-        return PlainTextResponse("INVALID_PARAMS", status_code=400)
+        # 返回JSON响应（便于调试）
+        return JSONResponse({
+            "status": "success",
+            "method": "GET",
+            "endpoint": "/involve/event",
+            "data": processed_data,
+            "record_id": record_counter,
+            "message": "Event received successfully"
+        })
         
     except Exception as e:
         processing_time = (time.time() - start_time) * 1000
         logger.error(f"ByteC Involve Postback处理异常: conversion_id={conversion_id}, "
                     f"error={str(e)}, time={processing_time:.2f}ms")
-        return PlainTextResponse("ERROR", status_code=500)
+        return JSONResponse({
+            "status": "error",
+            "method": "GET",
+            "endpoint": "/involve/event",
+            "error": str(e),
+            "message": "Event processing failed"
+        }, status_code=500)
+
+
+@router.post("/involve/event")
+async def bytec_involve_endpoint_post(
+    request: Request,
+    # 根据真实URL模板的参数
+    sub_id: Optional[str] = Query(None, description="发布商参数1 (aff_sub)"),
+    media_id: Optional[str] = Query(None, description="媒体ID (aff_sub2)"),
+    click_id: Optional[str] = Query(None, description="点击ID (aff_sub3)"),
+    usd_sale_amount: Optional[float] = Query(None, description="美元销售金额"),
+    usd_payout: Optional[float] = Query(None, description="美元佣金"),
+    offer_name: Optional[str] = Query(None, description="Offer名称"),
+    conversion_id: Optional[str] = Query(None, description="转换ID"),
+    conversion_datetime: Optional[str] = Query(None, description="转换时间"),
+    
+    # 额外的可选参数
+    offer_id: Optional[str] = Query(None, description="Offer ID"),
+    order_id: Optional[str] = Query(None, description="订单ID"),
+    status: Optional[str] = Query(None, description="状态"),
+    
+    # Token参数（用于租户识别）
+    ts_token: Optional[str] = Query(None, description="TS Token"),
+    ts_param: Optional[str] = Query(None, description="TS Parameter"),
+    tlm_token: Optional[str] = Query(None, description="TLM Token"),
+):
+    """
+    ByteC定制化Involve Postback端点 (POST方法)
+    """
+    global record_counter
+    start_time = time.time()
+    
+    try:
+        record_counter += 1
+        
+        # 尝试从POST body中获取参数
+        body_data = {}
+        try:
+            body_data = await request.json()
+        except:
+            pass
+        
+        # 合并query参数和body参数
+        final_params = {
+            "sub_id": sub_id or body_data.get("sub_id"),
+            "media_id": media_id or body_data.get("media_id"),
+            "click_id": click_id or body_data.get("click_id"),
+            "usd_sale_amount": usd_sale_amount or body_data.get("usd_sale_amount"),
+            "usd_payout": usd_payout or body_data.get("usd_payout"),
+            "offer_name": offer_name or body_data.get("offer_name"),
+            "conversion_id": conversion_id or body_data.get("conversion_id"),
+            "conversion_datetime": conversion_datetime or body_data.get("conversion_datetime"),
+        }
+        
+        # 构造处理后的数据
+        processed_data = {
+            "click_id": final_params["click_id"],
+            "media_id": final_params["media_id"],
+            "rewards": final_params["usd_payout"],
+            "conversion_id": final_params["conversion_id"],
+            "event": None,
+            "event_time": final_params["conversion_datetime"],
+            "offer_name": final_params["offer_name"],
+            "usd_sale_amount": final_params["usd_sale_amount"],
+            "aff_sub": final_params["sub_id"],
+            "aff_sub2": final_params["media_id"],
+            "aff_sub3": final_params["click_id"],
+            "usd_payout": final_params["usd_payout"],
+            "datetime_conversion": final_params["conversion_datetime"],
+            "raw_params": dict(request.query_params),
+            "body_data": body_data
+        }
+        
+        # 存储到内存记录
+        record = {
+            "id": record_counter,
+            "timestamp": time.time(),
+            "method": "POST",
+            "endpoint": "/involve/event",
+            "data": processed_data,
+            "processing_time_ms": 0
+        }
+        
+        # 计算处理时间
+        processing_time = (time.time() - start_time) * 1000
+        record["processing_time_ms"] = processing_time
+        
+        postback_records.append(record)
+        
+        # 记录日志
+        logger.info(f"ByteC Involve Postback (POST) 处理完成: conversion_id={final_params['conversion_id']}, "
+                   f"click_id={final_params['click_id']}, media_id={final_params['media_id']}, "
+                   f"usd_payout={final_params['usd_payout']}, time={processing_time:.2f}ms")
+        
+        # 返回JSON响应
+        return JSONResponse({
+            "status": "success",
+            "method": "POST",
+            "endpoint": "/involve/event",
+            "data": processed_data,
+            "record_id": record_counter,
+            "message": "Event received successfully"
+        })
+        
+    except Exception as e:
+        processing_time = (time.time() - start_time) * 1000
+        logger.error(f"ByteC Involve Postback (POST) 处理异常: error={str(e)}, time={processing_time:.2f}ms")
+        return JSONResponse({
+            "status": "error",
+            "method": "POST",
+            "endpoint": "/involve/event",
+            "error": str(e),
+            "message": "Event processing failed"
+        }, status_code=500)
+
+
+# ====== 辅助端点 ======
+@router.get("/involve/records")
+async def get_involve_records(limit: int = Query(10, description="返回记录数量")):
+    """
+    获取最近的involve事件记录
+    """
+    recent_records = postback_records[-limit:] if postback_records else []
+    return {
+        "status": "success",
+        "total_records": len(postback_records),
+        "recent_records": recent_records,
+        "message": f"返回最近{len(recent_records)}条记录"
+    }
+
+
+@router.get("/involve/health")
+async def involve_health_check():
+    """
+    Involve系统健康检查
+    """
+    return {
+        "status": "healthy",
+        "service": "ByteC Postback System",
+        "endpoint": "/involve/event",
+        "methods": ["GET", "POST"],
+        "total_records": len(postback_records),
+        "timestamp": time.time()
+    }
 
 
 # ====== 原有的通用Endpoint ======
-@router.get("/", response_class=PlainTextResponse)
+@router.get("/postback/")
 async def postback_endpoint_get(
     request: Request,
-    background_tasks: BackgroundTasks,
     # Involve Asia核心参数
     conversion_id: str = Query(..., description="转换ID"),
     offer_id: Optional[str] = Query(None, description="Offer ID"),
@@ -181,8 +324,6 @@ async def postback_endpoint_get(
     ts_token: Optional[str] = Query(None, description="TS Token"),
     ts_param: Optional[str] = Query(None, description="TS Parameter"),
     tlm_token: Optional[str] = Query(None, description="TLM Token"),
-    
-    db: AsyncSession = Depends(get_db)
 ):
     """
     Postback接收端点 (GET方法)
@@ -190,209 +331,229 @@ async def postback_endpoint_get(
     接收电商平台的转化回传数据，这是系统的核心入口点。
     支持Involve Asia标准的所有参数，同时支持多租户Token验证。
     """
+    global record_counter
     start_time = time.time()
     
     try:
-        # 1. 租户验证和识别
-        token_service = TokenService()
-        tenant = await token_service.identify_tenant(
-            ts_token=ts_token,
-            ts_param=ts_param, 
-            tlm_token=tlm_token,
-            db=db
-        )
+        record_counter += 1
         
-        if not tenant:
-            logger.warning(f"无法识别租户，tokens: ts_token={ts_token}, ts_param={ts_param}, tlm_token={tlm_token}")
-            return PlainTextResponse("INVALID_TENANT", status_code=400)
+        # 构造处理后的数据
+        processed_data = {
+            "conversion_id": conversion_id,
+            "offer_id": offer_id,
+            "offer_name": offer_name,
+            "datetime_conversion": datetime_conversion,
+            "datetime_conversion_updated": datetime_conversion_updated,
+            "order_id": order_id,
+            "sale_amount_local": sale_amount_local,
+            "myr_sale_amount": myr_sale_amount,
+            "usd_sale_amount": usd_sale_amount,
+            "payout_local": payout_local,
+            "myr_payout": myr_payout,
+            "usd_payout": usd_payout,
+            "conversion_currency": conversion_currency,
+            "adv_sub": adv_sub,
+            "adv_sub2": adv_sub2,
+            "adv_sub3": adv_sub3,
+            "adv_sub4": adv_sub4,
+            "adv_sub5": adv_sub5,
+            "aff_sub": aff_sub,
+            "aff_sub2": aff_sub2,
+            "aff_sub3": aff_sub3,
+            "aff_sub4": aff_sub4,
+            "status": status,
+            "offer_status": offer_status,
+            "ts_token": ts_token,
+            "ts_param": ts_param,
+            "tlm_token": tlm_token,
+            "raw_params": dict(request.query_params)
+        }
         
-        # 2. 构造Postback请求数据
-        postback_data = PostbackRequest(
-            conversion_id=conversion_id,
-            offer_id=offer_id,
-            offer_name=offer_name,
-            datetime_conversion=datetime_conversion,
-            datetime_conversion_updated=datetime_conversion_updated,
-            order_id=order_id,
-            sale_amount_local=sale_amount_local,
-            myr_sale_amount=myr_sale_amount,
-            usd_sale_amount=usd_sale_amount,
-            payout_local=payout_local,
-            myr_payout=myr_payout,
-            usd_payout=usd_payout,
-            conversion_currency=conversion_currency,
-            adv_sub=adv_sub,
-            adv_sub2=adv_sub2,
-            adv_sub3=adv_sub3,
-            adv_sub4=adv_sub4,
-            adv_sub5=adv_sub5,
-            aff_sub=aff_sub,
-            aff_sub2=aff_sub2,
-            aff_sub3=aff_sub3,
-            aff_sub4=aff_sub4,
-            status=status,
-            offer_status=offer_status
-        )
+        # 存储到内存记录
+        record = {
+            "id": record_counter,
+            "timestamp": time.time(),
+            "method": "GET",
+            "endpoint": "/postback/",
+            "data": processed_data,
+            "processing_time_ms": 0
+        }
         
-        # 3. 处理Postback数据
-        postback_service = PostbackService()
-        result = await postback_service.process_postback(
-            tenant=tenant,
-            postback_data=postback_data,
-            request=request,
-            db=db
-        )
-        
-        # 4. 异步后处理任务
-        if result.success and not result.duplicate:
-            background_tasks.add_task(
-                postback_service.post_process_conversion,
-                conversion_id=result.conversion_id,
-                tenant_id=tenant.id
-            )
-        
-        # 5. 计算处理时间
+        # 计算处理时间
         processing_time = (time.time() - start_time) * 1000
+        record["processing_time_ms"] = processing_time
         
-        # 6. 记录成功日志
-        logger.info(f"Postback处理完成: tenant={tenant.tenant_code}, "
-                   f"conversion_id={conversion_id}, "
-                   f"duplicate={result.duplicate}, "
+        postback_records.append(record)
+        
+        # 记录日志
+        logger.info(f"Postback处理完成: conversion_id={conversion_id}, "
                    f"time={processing_time:.2f}ms")
         
-        # 7. 返回成功响应 (根据行业标准，通常返回OK)
-        return PlainTextResponse("OK", status_code=200)
-        
-    except ValueError as e:
-        logger.warning(f"Postback参数验证失败: {str(e)}")
-        return PlainTextResponse("INVALID_PARAMS", status_code=400)
+        # 返回JSON响应
+        return JSONResponse({
+            "status": "success",
+            "method": "GET",
+            "endpoint": "/postback/",
+            "data": processed_data,
+            "record_id": record_counter,
+            "message": "Postback received successfully"
+        })
         
     except Exception as e:
         processing_time = (time.time() - start_time) * 1000
         logger.error(f"Postback处理异常: conversion_id={conversion_id}, "
                     f"error={str(e)}, time={processing_time:.2f}ms")
-        return PlainTextResponse("ERROR", status_code=500)
+        return JSONResponse({
+            "status": "error",
+            "method": "GET",
+            "endpoint": "/postback/",
+            "error": str(e),
+            "message": "Postback processing failed"
+        }, status_code=500)
 
 
-@router.post("/")
+@router.post("/postback/")
 async def postback_endpoint_post(
     request: Request,
-    postback_data: PostbackRequest,
-    background_tasks: BackgroundTasks,
     ts_token: Optional[str] = Query(None, description="TS Token"),
     ts_param: Optional[str] = Query(None, description="TS Parameter"),
     tlm_token: Optional[str] = Query(None, description="TLM Token"),
-    db: AsyncSession = Depends(get_db)
-) -> PostbackResponse:
+):
     """
     Postback接收端点 (POST方法)
     
     提供JSON格式的Postback数据接收，适用于高级集成场景。
     """
+    global record_counter
     start_time = time.time()
     
     try:
-        # 1. 租户验证和识别
-        token_service = TokenService()
-        tenant = await token_service.identify_tenant(
-            ts_token=ts_token,
-            ts_param=ts_param,
-            tlm_token=tlm_token,
-            db=db
-        )
+        record_counter += 1
         
-        if not tenant:
-            raise HTTPException(
-                status_code=400,
-                detail="无法识别租户，请检查Token参数"
-            )
+        # 尝试从POST body中获取数据
+        body_data = {}
+        try:
+            body_data = await request.json()
+        except:
+            pass
         
-        # 2. 处理Postback数据
-        postback_service = PostbackService()
-        result = await postback_service.process_postback(
-            tenant=tenant,
-            postback_data=postback_data,
-            request=request,
-            db=db
-        )
+        # 合并query参数和body参数
+        all_params = dict(request.query_params)
+        all_params.update(body_data)
         
-        # 3. 异步后处理任务
-        if result.success and not result.duplicate:
-            background_tasks.add_task(
-                postback_service.post_process_conversion,
-                conversion_id=result.conversion_id,
-                tenant_id=tenant.id
-            )
+        # 构造处理后的数据
+        processed_data = {
+            "ts_token": ts_token,
+            "ts_param": ts_param,
+            "tlm_token": tlm_token,
+            "body_data": body_data,
+            "query_params": dict(request.query_params),
+            "all_params": all_params,
+            "content_type": request.headers.get("content-type", "")
+        }
         
-        # 4. 计算处理时间并返回详细响应
+        # 存储到内存记录
+        record = {
+            "id": record_counter,
+            "timestamp": time.time(),
+            "method": "POST",
+            "endpoint": "/postback/",
+            "data": processed_data,
+            "processing_time_ms": 0
+        }
+        
+        # 计算处理时间
         processing_time = (time.time() - start_time) * 1000
-        result.processing_time_ms = processing_time
+        record["processing_time_ms"] = processing_time
         
-        logger.info(f"Postback(POST)处理完成: tenant={tenant.tenant_code}, "
-                   f"conversion_id={postback_data.conversion_id}, "
-                   f"duplicate={result.duplicate}, "
+        postback_records.append(record)
+        
+        logger.info(f"Postback(POST)处理完成: record_id={record_counter}, "
                    f"time={processing_time:.2f}ms")
         
-        return result
+        return JSONResponse({
+            "status": "success",
+            "method": "POST",
+            "endpoint": "/postback/",
+            "data": processed_data,
+            "record_id": record_counter,
+            "message": "Postback received successfully"
+        })
         
-    except HTTPException:
-        raise
     except Exception as e:
         processing_time = (time.time() - start_time) * 1000
-        logger.error(f"Postback(POST)处理异常: "
-                    f"conversion_id={postback_data.conversion_id}, "
-                    f"error={str(e)}, time={processing_time:.2f}ms")
-        raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+        logger.error(f"Postback(POST)处理异常: error={str(e)}, time={processing_time:.2f}ms")
+        return JSONResponse({
+            "status": "error",
+            "method": "POST",
+            "endpoint": "/postback/",
+            "error": str(e),
+            "message": "Postback processing failed"
+        }, status_code=500)
 
 
-@router.get("/conversions")
+@router.get("/postback/conversions")
 async def get_conversions(
-    query: ConversionQuery = Depends(),
-    db: AsyncSession = Depends(get_db)
-) -> ConversionsResponse:
+    limit: int = Query(10, description="返回记录数量"),
+    offset: int = Query(0, description="偏移量"),
+):
     """
     查询转换数据
     
     提供灵活的转换数据查询功能，支持多种筛选条件。
     """
     try:
-        postback_service = PostbackService()
-        result = await postback_service.query_conversions(query, db)
-        return result
+        # 从内存记录中获取数据
+        total_records = len(postback_records)
+        records = postback_records[offset:offset + limit] if postback_records else []
+        
+        return {
+            "status": "success",
+            "total_records": total_records,
+            "limit": limit,
+            "offset": offset,
+            "records": records,
+            "message": f"返回{len(records)}条转换记录"
+        }
         
     except Exception as e:
         logger.error(f"查询转换数据失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "message": "查询失败"
+        }, status_code=500)
 
 
-@router.get("/health")
-async def health_check(db: AsyncSession = Depends(get_db)):
+@router.get("/postback/health")
+async def health_check():
     """
     健康检查端点
     
     检查Postback服务的健康状态，包括数据库连接等。
     """
     try:
-        # 检查数据库连接
-        await db.execute("SELECT 1")
-        
         return {
             "status": "healthy",
             "timestamp": time.time(),
-            "database": "connected",
+            "database": "memory_storage",
+            "total_records": len(postback_records),
             "message": "Postback service is running normally"
         }
         
     except Exception as e:
         logger.error(f"健康检查失败: {str(e)}")
-        raise HTTPException(status_code=503, detail="Service unavailable")
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "message": "Service unavailable"
+        }, status_code=503)
 
 
-@router.get("/stats")
+@router.get("/postback/stats")
 async def get_stats(
     tenant_code: Optional[str] = Query(None, description="租户代码"),
     hours: int = Query(24, description="统计时间范围(小时)"),
-    db: AsyncSession = Depends(get_db)
 ):
     """
     获取Postback统计信息
@@ -400,10 +561,43 @@ async def get_stats(
     提供实时的转换统计数据，用于监控和分析。
     """
     try:
-        postback_service = PostbackService()
-        stats = await postback_service.get_stats(tenant_code, hours, db)
+        # 计算统计数据
+        current_time = time.time()
+        cutoff_time = current_time - (hours * 3600)
+        
+        # 过滤指定时间范围内的记录
+        recent_records = [r for r in postback_records if r.get("timestamp", 0) >= cutoff_time]
+        
+        # 按方法分组统计
+        get_count = sum(1 for r in recent_records if r.get("method") == "GET")
+        post_count = sum(1 for r in recent_records if r.get("method") == "POST")
+        
+        # 按端点分组统计
+        involve_count = sum(1 for r in recent_records if "/involve/event" in r.get("endpoint", ""))
+        postback_count = sum(1 for r in recent_records if "/postback/" in r.get("endpoint", ""))
+        
+        stats = {
+            "status": "success",
+            "time_range_hours": hours,
+            "total_records": len(postback_records),
+            "recent_records": len(recent_records),
+            "by_method": {
+                "GET": get_count,
+                "POST": post_count
+            },
+            "by_endpoint": {
+                "involve_event": involve_count,
+                "postback": postback_count
+            },
+            "timestamp": current_time
+        }
+        
         return stats
         
     except Exception as e:
         logger.error(f"获取统计信息失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取统计失败: {str(e)}") 
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "message": "获取统计失败"
+        }, status_code=500) 

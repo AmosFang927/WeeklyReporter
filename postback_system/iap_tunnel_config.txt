@@ -1,0 +1,42 @@
+ByteC Postback - Cloud IAP隧道配置信息
+=====================================
+
+项目信息:
+- 项目ID: solar-idea-463423-h8
+- 区域: us-central1
+- 服务名称: bytec-iap-proxy
+
+OAuth配置:
+- Client ID: [请从Google Cloud Console获取]
+- Client Secret: [请从Google Cloud Console获取]
+
+网络配置:
+- 本地服务端口: 8000
+- 本地公网IP: [请配置您的公网IP]
+- 代理服务URL: https://bytec-iap-proxy-crwdeesavq-uc.a.run.app
+
+重要端点:
+- 健康检查: https://bytec-iap-proxy-crwdeesavq-uc.a.run.app/health
+- Postback接收: https://bytec-iap-proxy-crwdeesavq-uc.a.run.app/postback/
+- API文档: https://bytec-iap-proxy-crwdeesavq-uc.a.run.app/docs
+
+管理命令:
+- 查看服务日志: gcloud run services logs read bytec-iap-proxy --region=us-central1
+- 更新服务: gcloud run services update bytec-iap-proxy --region=us-central1
+- 删除服务: gcloud run services delete bytec-iap-proxy --region=us-central1 --quiet
+
+IAP管理:
+- IAP控制台: https://console.cloud.google.com/security/iap?project=solar-idea-463423-h8
+- 添加用户权限: 在IAP控制台中添加 'IAP-secured Web App User' 角色
+
+注意事项:
+1. 确保本地服务运行在正确的端口
+2. 确保路由器端口转发配置正确
+3. 每次访问都需要Google账户认证
+4. 只有授权用户才能访问服务
+5. 请不要将OAuth凭据提交到版本控制系统
+
+安全提醒:
+- OAuth Client ID和Client Secret应该保存在安全的地方
+- 建议使用环境变量或配置文件来管理敏感信息
+- 定期轮换OAuth凭据以提高安全性 

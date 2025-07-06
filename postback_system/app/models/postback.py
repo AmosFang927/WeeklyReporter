@@ -3,13 +3,20 @@
 Postback转化数据模型
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Numeric, Text, Boolean, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, DateTime, Numeric, Text, Boolean, ForeignKey, Index, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from .database import Base
 from decimal import Decimal
 from typing import Optional, Dict, Any
+
+# 兼容SQLite和PostgreSQL的JSON类型
+try:
+    from sqlalchemy.dialects.postgresql import JSONB
+    # 使用 JSON 而不是 JSONB 以兼容 SQLite
+    JsonType = JSON
+except ImportError:
+    JsonType = JSON
 
 
 class PostbackConversion(Base):
@@ -73,8 +80,8 @@ class PostbackConversion(Base):
     processing_error = Column(Text, comment="处理错误信息")
     
     # 原始数据存储
-    raw_data = Column(JSONB, comment="完整的原始Postback数据")
-    request_headers = Column(JSONB, comment="请求头信息")
+    raw_data = Column(JsonType, comment="完整的原始Postback数据")
+    request_headers = Column(JsonType, comment="请求头信息")
     request_ip = Column(String(45), comment="请求IP地址")
     
     # 时间戳
