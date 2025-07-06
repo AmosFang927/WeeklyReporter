@@ -336,13 +336,17 @@ class WeeklyReporter:
                     partner_list = target_partner
                 else:
                     partner_list = [target_partner]
-                
-                # 检查是否需要多API
-                needs_multi, apis = config.needs_multi_api_for_partners(partner_list)
-                if needs_multi:
-                    use_multi_api_mode = True
-                    required_apis = apis
-                    print_step("多API模式", f"检测到Partner({', '.join(partner_list)})需要多API: {', '.join(apis)}")
+            else:
+                # target_partner为None表示处理所有Partner
+                partner_list = list(config.PARTNER_SOURCES_MAPPING.keys())
+                print_step("Partner展开", f"target_partner为None，展开为所有Partner: {', '.join(partner_list)}")
+            
+            # 检查是否需要多API
+            needs_multi, apis = config.needs_multi_api_for_partners(partner_list)
+            if needs_multi:
+                use_multi_api_mode = True
+                required_apis = apis
+                print_step("多API模式", f"检测到Partner({', '.join(partner_list)})需要多API: {', '.join(apis)}")
             
             if use_multi_api_mode:
                 print_step("API准备", f"将从 {len(required_apis)} 个API获取数据: {', '.join(required_apis)}")
@@ -1090,8 +1094,15 @@ def main():
     else:
         # 根据Partner自动选择API
         if args.partner:
-            # 解析Partner列表
-            partner_list = [p.strip() for p in args.partner.split(',')]
+            # 解析Partner列表，处理 "all" 关键字
+            if args.partner.lower() == 'all':
+                # 展开为所有Partner
+                partner_list = list(config.PARTNER_SOURCES_MAPPING.keys())
+                print(f"🔑 展开 --partner all 为所有Partner: {', '.join(partner_list)}")
+            else:
+                # 解析用逗号分隔的Partner列表
+                partner_list = [p.strip() for p in args.partner.split(',')]
+            
             needs_multi, apis = config.needs_multi_api_for_partners(partner_list)
             
             if needs_multi:
