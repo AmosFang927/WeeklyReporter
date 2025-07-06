@@ -11,6 +11,9 @@ import queue
 
 app = Flask(__name__)
 
+# 获取服务名称 - 优先从环境变量获取，否则使用默认值
+SERVICE_NAME = os.environ.get('K_SERVICE', 'reporter-agent')
+
 # 全局任务状态管理
 task_status = {
     "current_task": None,
@@ -84,7 +87,7 @@ def detailed_health_check():
     
     return jsonify({
         "status": "healthy",
-        "service": "WeeklyReporter",
+        "service": SERVICE_NAME,
         "timestamp": datetime.now().isoformat(),
         "version": "2.1.0",
         "uptime_seconds": (datetime.now() - task_status["server_start_time"]).total_seconds(),
@@ -376,7 +379,7 @@ def status():
     
     return jsonify({
         "status": "running",
-        "service": "WeeklyReporter",
+        "service": SERVICE_NAME,
         "version": "2.1.0",
         "description": "Weekly reporting service for Involve Asia data - Enhanced Edition",
         "uptime_seconds": (datetime.now() - task_status["server_start_time"]).total_seconds(),
@@ -424,7 +427,7 @@ def test_endpoint():
     """测试端点 - 显示当前环境信息"""
     return jsonify({
         "status": "ok",
-        "service": "WeeklyReporter",
+        "service": SERVICE_NAME,
         "version": "2.1.0",
         "environment": {
             "working_directory": os.getcwd(),
