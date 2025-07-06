@@ -119,8 +119,8 @@ gcloud run deploy $SERVICE_NAME \
     --timeout 3600 \
     --concurrency 1000 \
     --set-env-vars "TZ=$TIMEZONE,GIT_SHA=$GIT_SHA,DEPLOY_TIME=$DEPLOY_TIME" \
-    --labels "app=weeklyreporter,component=main,version=$TIMESTAMP,region=singapore" \
-    --service-account "weeklyreporter@solar-idea-463423-h8.iam.gserviceaccount.com"
+    --labels "app=reporter-agent,component=main,version=$TIMESTAMP,region=singapore" \
+    --service-account "reporter-agent@solar-idea-463423-h8.iam.gserviceaccount.com"
 
 if [ $? -ne 0 ]; then
     echo "❌ 部署失败"

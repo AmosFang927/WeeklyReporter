@@ -961,6 +961,11 @@ def create_parser():
   # 指定日期范围
   python main.py --start-date 2025-01-01 --end-date 2025-01-07
 
+  # 使用相对日期参数（推荐）
+  python main.py --days-ago 1    # 获取昨天的数据
+  python main.py --days-ago 2    # 获取2天前的数据
+  python main.py --days-ago 7    # 获取1周前的数据
+
   # 使用指定的API配置
   python main.py --api LisaidWebeye
   python main.py --api LisaidByteC
@@ -980,6 +985,11 @@ def create_parser():
 
   # 组合使用：指定API和限制记录数
   python main.py --api LisaidWebeye --limit 100 --partner RAMPUP --start-date 2025-06-17 --end-date 2025-06-18
+
+  # 组合使用：相对日期 + Partner + 限制
+  python main.py --days-ago 2 --partner YueMeng
+  python main.py --days-ago 1 --partner all --limit 500
+  python main.py --days-ago 3 --api LisaidByteC --partner RAMPUP
 
   # 只获取API数据
   python main.py --api-only
@@ -1016,7 +1026,9 @@ def create_parser():
                        help='开始日期 (YYYY-MM-DD格式)')
     parser.add_argument('--end-date', type=str,
                        help='结束日期 (YYYY-MM-DD格式)')
-    
+    parser.add_argument('--days-ago', type=int,
+                       help='获取N天前的数据，例如 --days-ago 2 表示获取2天前的数据 (优先级高于--start-date/--end-date)')
+
     # 数据限制参数
     parser.add_argument('--limit', type=int,
                        help='最大记录数限制，例如 --limit 100 表示最多获取100条记录')
@@ -1037,15 +1049,21 @@ def create_parser():
     parser.add_argument('--upload-only', action='store_true',
                        help='只执行飞书上传，上传output目录下所有Excel文件')
     
-    # 其他选项
-    parser.add_argument('--save-json', action='store_true',
-                       help='保存中间JSON文件')
-    parser.add_argument('--upload-feishu', action='store_true',
-                       help='上传所有Excel文件到飞书Sheet')
+    # 其他选项 - 默认值为True，用户可以通过--no-save-json等来禁用
+    parser.add_argument('--save-json', action='store_true', default=True,
+                       help='保存中间JSON文件 (默认启用)')
+    parser.add_argument('--no-save-json', action='store_false', dest='save_json',
+                       help='禁用保存中间JSON文件')
+    parser.add_argument('--upload-feishu', action='store_true', default=True,
+                       help='上传所有Excel文件到飞书Sheet (默认启用)')
+    parser.add_argument('--no-upload-feishu', action='store_false', dest='upload_feishu',
+                       help='禁用上传到飞书')
     parser.add_argument('--test-feishu', action='store_true',
                        help='测试飞书API连接')
-    parser.add_argument('--send-email', action='store_true',
-                       help='发送邮件报告')
+    parser.add_argument('--send-email', action='store_true', default=True,
+                       help='发送邮件报告 (默认启用)')
+    parser.add_argument('--no-send-email', action='store_false', dest='send_email',
+                       help='禁用邮件发送')
     parser.add_argument('--self-email', action='store_true',
                        help='发送邮件到默认收件人群组 (AmosFang927@gmail.com)')
     parser.add_argument('--no-email', action='store_true',
@@ -1072,6 +1090,7 @@ def main():
     print("=" * 60)
     print(f"⏰ 启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"📂 输出目录: {config.OUTPUT_DIR}")
+    import os
     print(f"🌐 运行环境: {'Cloud Run' if os.getenv('K_SERVICE') else 'Local'}")
     print("=" * 60)
     sys.stdout.flush()  # 强制刷新输出
@@ -1079,6 +1098,64 @@ def main():
     # 解析命令行参数
     parser = create_parser()
     args = parser.parse_args()
+    
+    # 支持环境变量覆盖（用于 Cloud Run Jobs）
+    import os
+    env_overrides = {}
+    
+    # 检查环境变量并覆盖相应参数
+    if os.getenv('PARTNER'):
+        args.partner = os.getenv('PARTNER')
+        env_overrides['partner'] = args.partner
+        
+    if os.getenv('DAYS_AGO'):
+        args.days_ago = int(os.getenv('DAYS_AGO'))
+        env_overrides['days_ago'] = args.days_ago
+        
+    if os.getenv('START_DATE'):
+        args.start_date = os.getenv('START_DATE')
+        env_overrides['start_date'] = args.start_date
+        
+    if os.getenv('END_DATE'):
+        args.end_date = os.getenv('END_DATE')
+        env_overrides['end_date'] = args.end_date
+        
+    if os.getenv('LIMIT'):
+        args.limit = int(os.getenv('LIMIT'))
+        env_overrides['limit'] = args.limit
+        
+    if os.getenv('API'):
+        args.api = os.getenv('API')
+        env_overrides['api'] = args.api
+        
+    if os.getenv('SAVE_JSON'):
+        setattr(args, 'save_json', os.getenv('SAVE_JSON').lower() in ['true', '1', 'yes'])
+        env_overrides['save_json'] = getattr(args, 'save_json', False)
+        
+    if os.getenv('UPLOAD_FEISHU'):
+        setattr(args, 'upload_feishu', os.getenv('UPLOAD_FEISHU').lower() in ['true', '1', 'yes'])
+        env_overrides['upload_feishu'] = getattr(args, 'upload_feishu', False)
+        
+    if os.getenv('SEND_EMAIL'):
+        if os.getenv('SEND_EMAIL').lower() in ['false', '0', 'no']:
+            setattr(args, 'no_email', True)
+        env_overrides['send_email'] = os.getenv('SEND_EMAIL').lower() in ['true', '1', 'yes']
+    
+    # 显示环境变量覆盖信息
+    if env_overrides:
+        print("🌍 使用环境变量覆盖参数:")
+        for key, value in env_overrides.items():
+            print(f"   {key}: {value}")
+        sys.stdout.flush()
+    
+    # 处理 --days-ago 参数
+    if hasattr(args, 'days_ago') and args.days_ago is not None:
+        from datetime import timedelta
+        target_date = (datetime.now() - timedelta(days=args.days_ago)).strftime('%Y-%m-%d')
+        args.start_date = target_date
+        args.end_date = target_date
+        print(f"📅 使用相对日期参数: --days-ago {args.days_ago} → {target_date}")
+        sys.stdout.flush()
     
     # 获取API配置
     api_secret = None
@@ -1258,8 +1335,8 @@ def main():
                         target_partners = target_partners[0]  # 单个Partner保持字符串格式
                     print(f"📋 指定处理的Partner: {target_partners}")
             
-            # 确定是否发送邮件
-            should_send_email = True  # 默认发送邮件
+            # 确定是否发送邮件 - 使用新的默认值逻辑
+            should_send_email = args.send_email  # 默认为True，除非被--no-send-email禁用
             should_send_self_email = False  # 默认不发送到默认收件人
             
             if args.no_email:
@@ -1269,22 +1346,21 @@ def main():
                 should_send_email = False  # 禁用常规邮件
                 should_send_self_email = True  # 启用默认收件人邮件
                 print("📧 已启用发送到默认收件人 (--self-email)")
-            elif args.send_email:
-                should_send_email = True
-                print("📧 已启用邮件发送 (--send-email)")
+            else:
+                print(f"📧 邮件发送状态: {'启用' if should_send_email else '禁用'}")
             
             # 设置多API配置到reporter实例
             if use_multi_api:
                 reporter.multi_api_configs = api_list
                 print(f"🔧 已为reporter配置多API支持")
             
-            # 完整工作流模式 - 默认执行所有流程
+            # 完整工作流模式 - 使用参数默认值
             result = reporter.run_full_workflow(
                 start_date=args.start_date,
                 end_date=args.end_date,
                 output_filename=args.output,
-                save_json=True,  # 默认保存JSON
-                upload_to_feishu=True,  # 默认上传到飞书
+                save_json=args.save_json,  # 默认True，可用--no-save-json禁用
+                upload_to_feishu=args.upload_feishu,  # 默认True，可用--no-upload-feishu禁用
                 send_email=should_send_email,  # 根据参数决定是否发送邮件
                 send_self_email=should_send_self_email,  # 根据参数决定是否发送到默认收件人
                 max_records=args.limit,  # 数据限制

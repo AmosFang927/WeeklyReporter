@@ -111,7 +111,7 @@ def readiness_probe():
 
 @app.route("/run", methods=["POST"])
 def run_weekly_reporter():
-    """手动触发WeeklyReporter任务 - 优化版本"""
+    """手动触发WeeklyReporter任务 - 完全同步main.py参数"""
     try:
         # 获取请求参数
         data = request.get_json() if request.is_json else {}
@@ -129,14 +129,34 @@ def run_weekly_reporter():
         # 生成任务ID
         task_id = f"task_{int(time.time())}_{hash(str(data)) % 10000}"
         
-        # 基础参数处理
-        start_date = data.get('start_date')
-        end_date = data.get('end_date')
-        days_ago = data.get('days_ago')
-        partner = data.get('partner')
-        partners = data.get('partners')
-        limit = data.get('limit')
-        output = data.get('output')
+        # =============================================================================
+        # 📋 参数处理 - 完全同步main.py支持的参数
+        # =============================================================================
+        
+        # 基础参数 - 与main.py完全一致
+        api = data.get('api')                          # --api
+        start_date = data.get('start_date')            # --start-date  
+        end_date = data.get('end_date')                # --end-date
+        days_ago = data.get('days_ago')                # --days-ago
+        limit = data.get('limit')                      # --limit
+        partner = data.get('partner')                  # --partner (只支持单数形式)
+        output = data.get('output')                    # --output
+        
+        # 功能开关参数 - 与main.py完全一致
+        api_only = data.get('api_only', False)         # --api-only
+        convert_only = data.get('convert_only')        # --convert-only
+        process_only = data.get('process_only')        # --process-only
+        upload_only = data.get('upload_only', False)   # --upload-only
+        save_json = data.get('save_json', True)        # --save-json
+        upload_feishu = data.get('upload_feishu', True) # --upload-feishu
+        test_feishu = data.get('test_feishu', False)   # --test-feishu
+        send_email = data.get('send_email', True)      # --send-email
+        self_email = data.get('self_email', False)     # --self-email
+        no_email = data.get('no_email', False)         # --no-email
+        test_email = data.get('test_email', False)     # --test-email
+        start_scheduler = data.get('start_scheduler', False) # --start-scheduler
+        run_scheduler_now = data.get('run_scheduler_now', False) # --run-scheduler-now
+        verbose = data.get('verbose', False)           # --verbose
         
         # 处理相对日期参数
         if days_ago is not None:
@@ -147,28 +167,56 @@ def run_weekly_reporter():
             print(f"📅 [Cloud Scheduler] 使用相对日期: {days_ago}天前 = {target_date}")
             sys.stdout.flush()
         
-        # 布尔参数
-        save_json = data.get('save_json', True)
-        upload_feishu = data.get('upload_feishu', True)
-        send_email = data.get('send_email', True)
-        
-        # 构建命令
+        # =============================================================================
+        # 🔧 构建命令 - 完全同步main.py支持的参数
+        # =============================================================================
         cmd = ["python", "main.py"]
         
-        # 添加参数
+        # 添加基础参数
+        if api:
+            cmd.extend(["--api", api])
         if start_date:
             cmd.extend(["--start-date", start_date])
         if end_date:
             cmd.extend(["--end-date", end_date])
-        if partners and isinstance(partners, list):
-            partner_str = ",".join(partners)
-            cmd.extend(["--partner", partner_str])
-        elif partner:
-            cmd.extend(["--partner", partner])
+        if days_ago is not None:
+            cmd.extend(["--days-ago", str(days_ago)])
         if limit:
             cmd.extend(["--limit", str(limit)])
+        if partner:
+            cmd.extend(["--partner", partner])
         if output:
             cmd.extend(["--output", output])
+            
+        # 添加功能开关参数
+        if api_only:
+            cmd.append("--api-only")
+        if convert_only:
+            cmd.extend(["--convert-only", convert_only])
+        if process_only:
+            cmd.extend(["--process-only", process_only])
+        if upload_only:
+            cmd.append("--upload-only")
+        if save_json:
+            cmd.append("--save-json")
+        if upload_feishu:
+            cmd.append("--upload-feishu")
+        if test_feishu:
+            cmd.append("--test-feishu")
+        if send_email:
+            cmd.append("--send-email")
+        if self_email:
+            cmd.append("--self-email")
+        if no_email:
+            cmd.append("--no-email")
+        if test_email:
+            cmd.append("--test-email")
+        if start_scheduler:
+            cmd.append("--start-scheduler")
+        if run_scheduler_now:
+            cmd.append("--run-scheduler-now")
+        if verbose:
+            cmd.append("--verbose")
         
         # 创建任务记录
         task_manager.create_task(task_id, " ".join(cmd), data)
@@ -233,7 +281,9 @@ def run_weekly_reporter():
         
         future = executor.submit(run_task_with_monitoring)
         
-        # 立即返回响应
+        # =============================================================================
+        # 📤 响应参数 - 只返回main.py支持的参数
+        # =============================================================================
         response = {
             "status": "started",
             "task_id": task_id,
@@ -241,15 +291,28 @@ def run_weekly_reporter():
             "timestamp": datetime.now().isoformat(),
             "command": " ".join(cmd),
             "parameters": {
+                # 只包含main.py实际支持的参数
+                "api": api,
                 "start_date": start_date,
                 "end_date": end_date,
                 "days_ago": days_ago,
-                "partner": partner,
-                "partners": partners,
                 "limit": limit,
+                "partner": partner,
+                "output": output,
+                "api_only": api_only,
+                "convert_only": convert_only,
+                "process_only": process_only,
+                "upload_only": upload_only,
                 "save_json": save_json,
                 "upload_feishu": upload_feishu,
-                "send_email": send_email
+                "test_feishu": test_feishu,
+                "send_email": send_email,
+                "self_email": self_email,
+                "no_email": no_email,
+                "test_email": test_email,
+                "start_scheduler": start_scheduler,
+                "run_scheduler_now": run_scheduler_now,
+                "verbose": verbose
             },
             "estimated_duration": "15-30 minutes",
             "status_check_url": f"/task/{task_id}"
@@ -330,16 +393,27 @@ def status():
             "/status": "Service status"
         },
         "supported_parameters": {
+            "api": "API configuration choice: LisaidWebeye, LisaidByteC, IAByteC",
             "start_date": "YYYY-MM-DD format",
             "end_date": "YYYY-MM-DD format",
             "days_ago": "Number of days ago (integer, overrides start_date/end_date)",
-            "partner": "Single partner name (e.g., 'YueMeng')",
-            "partners": "Array of partner names (e.g., ['YueMeng', 'RAMPUP'])",
             "limit": "Maximum number of records (integer)",
+            "partner": "Single partner name (e.g., 'YueMeng', 'all')",
             "output": "Custom output filename",
+            "api_only": "Only execute API data fetching (boolean)",
+            "convert_only": "Only execute JSON to Excel conversion (string: JSON file path)",
+            "process_only": "Only execute data processing (string: Excel/JSON file path)",
+            "upload_only": "Only execute Feishu upload (boolean)",
             "save_json": "Save intermediate JSON file (boolean, default: true)",
             "upload_feishu": "Upload to Feishu (boolean, default: true)",
-            "send_email": "Send email reports (boolean, default: true)"
+            "test_feishu": "Test Feishu API connection (boolean)",
+            "send_email": "Send email reports (boolean, default: true)",
+            "self_email": "Send email to default recipient group (boolean)",
+            "no_email": "Don't send emails to any Partners (boolean)",
+            "test_email": "Test email connection (boolean)",
+            "start_scheduler": "Start scheduler service (boolean)",
+            "run_scheduler_now": "Execute scheduler task immediately (boolean)",
+            "verbose": "Show detailed logs (boolean)"
         },
         "last_health_check": task_status["last_health_check"].isoformat() if task_status["last_health_check"] else None,
         "timestamp": datetime.now().isoformat()
