@@ -7,7 +7,7 @@
 PROJECT_ID="solar-idea-463423-h8"
 REGION="asia-southeast1"
 JOB_NAME="reporter-agent-all-8am"
-CLOUD_RUN_URL="https://reporter-agent-472712465571.asia-southeast1.run.app/run"
+CLOUD_RUN_URL="https://reporter-agent-crwdeesavq-as.a.run.app/run"
 SCHEDULE="0 8 * * *"  # 每天上午8点
 TIME_ZONE="Asia/Singapore"
 DESCRIPTION="WeeklyReporter 每日上午8点执行 - 处理所有合作伙伴2天前数据"
