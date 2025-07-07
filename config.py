@@ -45,6 +45,14 @@ MAX_RETRY_ATTEMPTS = 5  # 增加重试次数，提升容错性
 REQUEST_DELAY = 0.5  # 减少请求间隔到0.5秒，提升获取速度
 RATE_LIMIT_DELAY = 30  # 遇到429错误时的等待时间(秒)
 
+# 增强版API配置 - 资源监控和错误处理
+RESOURCE_MONITOR_ENABLED = True  # 启用资源监控
+MAX_SKIPPED_PAGES = 10  # 最大跳过页面数，超过此数停止获取
+CONNECTIVITY_CHECK_HOST = '8.8.8.8'  # 网络连通性检查主机
+CONNECTIVITY_CHECK_PORT = 53  # 网络连通性检查端口
+CONNECTIVITY_CHECK_TIMEOUT = 5  # 网络连通性检查超时(秒)
+THREAD_TIMEOUT_BUFFER = 5  # 线程超时缓冲时间(秒)
+
 # 分页配置
 DEFAULT_PAGE_LIMIT = 100
 MAX_RECORDS_LIMIT = None  # 最大记录数限制，None表示不限制，例如设置100表示最多获取100条记录
@@ -561,3 +569,46 @@ def get_pub_commission_rate(partner_name, offer_name):
     else:
         # 未配置的组合使用默认值
         return float(DEFAULT_PUB_COMMISSION_RATE)
+
+# =============================================================================
+# 异步I/O配置
+# =============================================================================
+
+# 最大并发请求数
+MAX_CONCURRENT_REQUESTS = 5
+
+# HTTP连接池配置
+HTTP_MAX_KEEPALIVE_CONNECTIONS = 10
+HTTP_MAX_CONNECTIONS = 20
+HTTP_KEEPALIVE_EXPIRY = 30
+
+# 异步批次处理配置
+ASYNC_BATCH_SIZE = 10  # 每批最多处理的页面数
+
+# 性能监控配置
+ENABLE_ASYNC_PERFORMANCE_MONITORING = True
+
+def get_async_config():
+    """获取异步配置"""
+    return {
+        'max_concurrent_requests': MAX_CONCURRENT_REQUESTS,
+        'http_max_keepalive_connections': HTTP_MAX_KEEPALIVE_CONNECTIONS,
+        'http_max_connections': HTTP_MAX_CONNECTIONS,
+        'http_keepalive_expiry': HTTP_KEEPALIVE_EXPIRY,
+        'async_batch_size': ASYNC_BATCH_SIZE,
+        'enable_performance_monitoring': ENABLE_ASYNC_PERFORMANCE_MONITORING
+    }
+
+def should_use_async_api():
+    """判断是否应该使用异步API"""
+    # 默认启用异步API，除非明确禁用
+    return os.getenv('USE_ASYNC_API', 'true').lower() in ('true', '1', 'yes')
+
+def get_optimal_concurrent_requests(total_pages):
+    """根据总页数获取最优并发数"""
+    if total_pages <= 5:
+        return min(total_pages, 3)
+    elif total_pages <= 20:
+        return min(total_pages // 2, MAX_CONCURRENT_REQUESTS)
+    else:
+        return MAX_CONCURRENT_REQUESTS

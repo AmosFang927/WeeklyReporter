@@ -14,7 +14,7 @@ TIMEZONE="Asia/Singapore"
 GIT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 DEPLOY_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-echo "🚀 开始部署 WeeklyReporter 到 Google Cloud Run"
+echo "🚀 开始部署 reporter-agent 到 Google Cloud Run"
 echo "================================================"
 echo "📋 项目ID: $PROJECT_ID"
 echo "🏷️ 服务名: $SERVICE_NAME"
@@ -102,8 +102,8 @@ echo "  - CPU: 8 vCPU"
 echo "  - 内存: 32GiB"
 echo "  - 超时: 3600秒"
 echo "  - 最大实例: 10个"
-echo "  - 最小实例: 0个"
-echo "  - 并发数: 1000"
+echo "  - 最小实例: 1个 (避免冷启动)"
+echo "  - 并发数: 10 (CPU密集型优化)"
 echo "  - 区域: $REGION (新加坡)"
 
 gcloud run deploy $SERVICE_NAME \
@@ -114,10 +114,10 @@ gcloud run deploy $SERVICE_NAME \
     --memory 32Gi \
     --cpu 8 \
     --max-instances 10 \
-    --min-instances 0 \
+    --min-instances 1 \
     --port 8080 \
     --timeout 3600 \
-    --concurrency 1000 \
+    --concurrency 10 \
     --set-env-vars "TZ=$TIMEZONE,GIT_SHA=$GIT_SHA,DEPLOY_TIME=$DEPLOY_TIME" \
     --labels "app=reporter-agent,component=main,version=$TIMESTAMP,region=singapore" \
     --service-account "reporter-agent@solar-idea-463423-h8.iam.gserviceaccount.com"

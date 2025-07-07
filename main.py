@@ -19,11 +19,36 @@ from modules.bytec_report_generator import ByteCReportGenerator
 from utils.logger import print_step, log_error
 import config
 
+# 异步API支持
+try:
+    from modules.involve_asia_api_async import AsyncInvolveAsiaAPI
+    ASYNC_API_AVAILABLE = True
+except ImportError:
+    ASYNC_API_AVAILABLE = False
+    print_step("异步API警告", "异步API模块未安装，将使用同步API")
+
 class WeeklyReporter:
     """周报生成器主类"""
     
-    def __init__(self, api_secret=None, api_key=None, global_email_disabled=False):
-        self.api_client = InvolveAsiaAPI(api_secret=api_secret, api_key=api_key)
+    def __init__(self, api_secret=None, api_key=None, global_email_disabled=False, use_async=None):
+        # 确定是否使用异步API
+        if use_async is None:
+            # 从配置文件判断是否使用异步API
+            self.use_async = ASYNC_API_AVAILABLE and config.should_use_async_api()
+        else:
+            self.use_async = use_async and ASYNC_API_AVAILABLE
+        
+        # 创建API客户端
+        if self.use_async:
+            self.api_client = AsyncInvolveAsiaAPI(api_secret=api_secret, api_key=api_key)
+            self.sync_api_client = InvolveAsiaAPI(api_secret=api_secret, api_key=api_key)  # 备用同步客户端
+            print_step("API模式", "使用异步API模式")
+        else:
+            self.api_client = InvolveAsiaAPI(api_secret=api_secret, api_key=api_key)
+            self.sync_api_client = None
+            print_step("API模式", "使用同步API模式")
+        
+        # 其他组件
         self.converter = JSONToExcelConverter()
         self.data_processor = DataProcessor()
         self.feishu_uploader = FeishuUploader()
@@ -67,8 +92,11 @@ class WeeklyReporter:
             sys.stdout.flush()
             
             try:
-                # 创建临时API客户端
-                temp_client = InvolveAsiaAPI(api_secret=api_secret, api_key=api_key)
+                # 创建临时API客户端（根据主客户端类型选择）
+                if self.use_async:
+                    temp_client = AsyncInvolveAsiaAPI(api_secret=api_secret, api_key=api_key)
+                else:
+                    temp_client = InvolveAsiaAPI(api_secret=api_secret, api_key=api_key)
                 
                 # 临时设置记录限制
                 original_limit = config.MAX_RECORDS_LIMIT
@@ -78,20 +106,40 @@ class WeeklyReporter:
                 # 认证
                 print_step(f"API-{api_name}", f"开始认证...")
                 sys.stdout.flush()
-                if not temp_client.authenticate():
-                    error_msg = f"API认证失败: {api_name}"
-                    api_errors.append(error_msg)
-                    print_step(f"API-{api_name}", f"❌ {error_msg}")
-                    continue
-                print_step(f"API-{api_name}", f"认证成功，开始获取数据...")
-                sys.stdout.flush()
                 
-                # 获取数据
-                print_step(f"API-{api_name}", f"调用get_conversions方法...")
-                sys.stdout.flush()
-                api_data = temp_client.get_conversions(start_date, end_date, api_name=api_name)
-                print_step(f"API-{api_name}", f"get_conversions方法执行完成")
-                sys.stdout.flush()
+                # 异步认证需要使用asyncio
+                if self.use_async:
+                    import asyncio
+                    
+                    async def authenticate_and_get_data():
+                        if not await temp_client.authenticate():
+                            return None
+                        return await temp_client.get_conversions_async(start_date, end_date, api_name=api_name)
+                    
+                    api_data = asyncio.run(authenticate_and_get_data())
+                    
+                    if api_data is None:
+                        error_msg = f"API认证失败: {api_name}"
+                        api_errors.append(error_msg)
+                        print_step(f"API-{api_name}", f"❌ {error_msg}")
+                        continue
+                else:
+                    # 同步认证
+                    if not temp_client.authenticate():
+                        error_msg = f"API认证失败: {api_name}"
+                        api_errors.append(error_msg)
+                        print_step(f"API-{api_name}", f"❌ {error_msg}")
+                        continue
+                    
+                    print_step(f"API-{api_name}", f"认证成功，开始获取数据...")
+                    sys.stdout.flush()
+                    
+                    # 获取数据
+                    print_step(f"API-{api_name}", f"调用get_conversions方法...")
+                    sys.stdout.flush()
+                    api_data = temp_client.get_conversions(start_date, end_date, api_name=api_name)
+                    print_step(f"API-{api_name}", f"get_conversions方法执行完成")
+                    sys.stdout.flush()
                 
                 # 恢复原始限制
                 config.MAX_RECORDS_LIMIT = original_limit
@@ -852,15 +900,35 @@ class WeeklyReporter:
         """
         print_step("API模式", "只执行API数据获取")
         
-        # 认证
-        if not self.api_client.authenticate():
-            return None
-        
-        # 获取数据
-        if start_date and end_date:
-            data = self.api_client.get_conversions(start_date, end_date)
+        if self.use_async:
+            # 异步模式
+            import asyncio
+            
+            async def get_data_async():
+                # 认证
+                if not await self.api_client.authenticate():
+                    return None
+                
+                # 获取数据
+                if start_date and end_date:
+                    data = await self.api_client.get_conversions_async(start_date, end_date)
+                else:
+                    data = await self.api_client.get_conversions_default_range_async()
+                
+                return data
+            
+            data = asyncio.run(get_data_async())
         else:
-            data = self.api_client.get_conversions_default_range()
+            # 同步模式
+            # 认证
+            if not self.api_client.authenticate():
+                return None
+            
+            # 获取数据
+            if start_date and end_date:
+                data = self.api_client.get_conversions(start_date, end_date)
+            else:
+                data = self.api_client.get_conversions_default_range()
         
         # 保存文件
         if data and save_to_file:
@@ -1014,6 +1082,22 @@ def create_parser():
 
   # 测试飞书API连接
   python main.py --test-feishu
+
+  # 使用异步API模式提升性能
+  python main.py --async
+
+  # 强制使用同步API模式
+  python main.py --sync
+
+  # 设置异步并发数
+  python main.py --async --concurrent 10
+
+  # 执行性能测试
+  python main.py --performance-test
+
+  # 组合异步模式和其他参数
+  python main.py --async --partner ByteC --days-ago 1
+  python main.py --async --concurrent 8 --limit 1000
         ''')
     
     # API配置参数
@@ -1038,6 +1122,16 @@ def create_parser():
     # 输出文件名
     parser.add_argument('--output', '-o', type=str,
                        help='Excel输出文件名')
+    
+    # 异步I/O参数
+    parser.add_argument('--async', action='store_true',
+                       help='使用异步API模式，提升大量数据获取性能')
+    parser.add_argument('--sync', action='store_true',
+                       help='强制使用同步API模式（覆盖默认设置）')
+    parser.add_argument('--concurrent', type=int, metavar='N',
+                       help='异步模式下的最大并发请求数（默认为配置文件中的值）')
+    parser.add_argument('--performance-test', action='store_true',
+                       help='执行同步vs异步性能测试')
     
     # 模式选择
     parser.add_argument('--api-only', action='store_true',
@@ -1148,6 +1242,29 @@ def main():
             print(f"   {key}: {value}")
         sys.stdout.flush()
     
+    # 处理异步参数
+    use_async = None
+    if hasattr(args, 'async') and getattr(args, 'async', False):
+        use_async = True
+        print("🚀 用户指定使用异步API模式")
+    elif hasattr(args, 'sync') and args.sync:
+        use_async = False
+        print("🐌 用户强制使用同步API模式")
+    
+    # 处理并发数参数
+    if hasattr(args, 'concurrent') and args.concurrent:
+        if args.concurrent > 0:
+            config.MAX_CONCURRENT_REQUESTS = args.concurrent
+            print(f"⚡ 设置最大并发请求数: {args.concurrent}")
+        else:
+            print("❌ 并发数必须大于0")
+            sys.exit(1)
+    
+    # 处理性能测试参数
+    if hasattr(args, 'performance_test') and args.performance_test:
+        print("🏁 执行性能测试模式")
+        # 性能测试逻辑将在后面处理
+    
     # 处理 --days-ago 参数
     if hasattr(args, 'days_ago') and args.days_ago is not None:
         from datetime import timedelta
@@ -1212,7 +1329,7 @@ def main():
     if hasattr(args, 'no_email') and args.no_email:
         global_email_disabled = True
     
-    reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key, global_email_disabled=global_email_disabled)
+    reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key, global_email_disabled=global_email_disabled, use_async=use_async)
     
     # 设置多API支持
     if use_multi_api:
@@ -1265,9 +1382,49 @@ def main():
                 print(f"\n👋 定时任务已停止")
                 sys.exit(0)
                 
+        elif args.performance_test:
+            # 性能测试模式
+            if not ASYNC_API_AVAILABLE:
+                print("\n❌ 异步API模块不可用，无法执行性能测试")
+                sys.exit(1)
+            
+            # 确定测试日期
+            test_start_date = args.start_date
+            test_end_date = args.end_date
+            if not test_start_date or not test_end_date:
+                test_start_date, test_end_date = config.get_default_date_range()
+            
+            print(f"\n🏁 开始性能测试: {test_start_date} 到 {test_end_date}")
+            
+            # 导入性能测试函数
+            from modules.involve_asia_api_async import compare_sync_vs_async_performance
+            
+            # 执行性能测试
+            try:
+                result = compare_sync_vs_async_performance(test_start_date, test_end_date, test_pages=5)
+                
+                print(f"\n📊 性能测试结果:")
+                print(f"   异步模式时间: {result['async_time']:.2f}秒")
+                print(f"   同步模式时间: {result['sync_time']:.2f}秒")
+                print(f"   性能提升倍数: {result['performance_ratio']:.2f}x")
+                print(f"   节省时间: {result['time_saved_seconds']:.2f}秒")
+                print(f"   异步获取记录: {result['async_records']} 条")
+                print(f"   同步获取记录: {result['sync_records']} 条")
+                print(f"   异步成功: {'✅' if result['async_success'] else '❌'}")
+                print(f"   同步成功: {'✅' if result['sync_success'] else '❌'}")
+                
+                if result['performance_ratio'] > 1:
+                    print(f"\n🎉 异步模式性能更优，建议使用 --async 参数")
+                else:
+                    print(f"\n🤔 同步模式性能更优或相近，可继续使用默认设置")
+                    
+            except Exception as e:
+                print(f"\n❌ 性能测试失败: {str(e)}")
+                sys.exit(1)
+                
         elif args.run_scheduler_now:
             # 立即执行定时任务
-            scheduler_reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key, global_email_disabled=False)  # 调度器需要API配置，保持邮件功能
+            scheduler_reporter = WeeklyReporter(api_secret=api_secret, api_key=api_key, global_email_disabled=False, use_async=use_async)  # 调度器需要API配置，保持邮件功能
             scheduler = ReportScheduler(scheduler_reporter)
             scheduler.run_now()
             sys.exit(0)

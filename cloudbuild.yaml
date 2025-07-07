@@ -30,7 +30,7 @@ steps:
       '--timeout', '3600',
       '--max-instances', '1',
       '--service-account', 'weeklyreporter@solar-idea-463423-h8.iam.gserviceaccount.com',
-      '--set-env-vars', 'TZ=Asia/Shanghai',
+      '--set-env-vars', 'TZ=Asia/Singapore',
       '--quiet'
     ]
 

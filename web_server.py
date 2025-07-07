@@ -393,7 +393,8 @@ def status():
             "/run": "Manual trigger (POST) - supports full parameters",
             "/task/<id>": "Get task status",
             "/tasks": "List all tasks",
-            "/status": "Service status"
+            "/status": "Service status",
+            "/timezone": "Timezone configuration info"
         },
         "supported_parameters": {
             "api": "API configuration choice: LisaidWebeye, LisaidByteC, IAByteC",
@@ -471,6 +472,93 @@ def test_logging():
         error_msg = f"❌ [Test] 日志测试失败: {str(e)}"
         print(error_msg)
         sys.stdout.flush()
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+@app.route("/timezone", methods=["GET"])
+def timezone_info():
+    """时区信息端点 - 检查应用程序时区配置"""
+    try:
+        import os
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        
+        # 尝试导入应用程序的时区工具
+        try:
+            from utils.logger import get_timezone_info, get_timezone_aware_time
+            logger_available = True
+        except ImportError:
+            logger_available = False
+        
+        # 收集时区信息
+        utc_time = datetime.now(ZoneInfo('UTC'))
+        singapore_time = datetime.now(ZoneInfo('Asia/Singapore'))
+        system_time = datetime.now()
+        
+        timezone_data = {
+            "status": "success",
+            "environment": {
+                "tz_env_var": os.getenv('TZ', 'NOT_SET'),
+                "k_service": os.getenv('K_SERVICE', 'NOT_SET'),
+                "is_cloud_run": bool(os.getenv('K_SERVICE'))
+            },
+            "times": {
+                "utc": {
+                    "timestamp": utc_time.isoformat(),
+                    "formatted": utc_time.strftime('%Y-%m-%d %H:%M:%S %Z'),
+                    "timezone": "UTC"
+                },
+                "singapore": {
+                    "timestamp": singapore_time.isoformat(),
+                    "formatted": singapore_time.strftime('%Y-%m-%d %H:%M:%S %Z'),
+                    "timezone": "Asia/Singapore",
+                    "utc_offset": singapore_time.strftime('%z')
+                },
+                "system": {
+                    "timestamp": system_time.isoformat(),
+                    "formatted": system_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    "timezone": "SYSTEM_DEFAULT"
+                }
+            },
+            "application_logger": {
+                "available": logger_available
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # 如果logger可用，添加详细信息
+        if logger_available:
+            try:
+                logger_info = get_timezone_info()
+                timezone_data["application_logger"].update({
+                    "timezone": logger_info['timezone'],
+                    "current_time": logger_info['current_time'],
+                    "formatted_time": logger_info['formatted_time'],
+                    "utc_offset": logger_info['utc_offset']
+                })
+            except Exception as e:
+                timezone_data["application_logger"]["error"] = str(e)
+        
+        # 配置验证
+        tz_env = os.getenv('TZ')
+        timezone_data["validation"] = {
+            "tz_env_correct": tz_env == 'Asia/Singapore',
+            "logger_available": logger_available,
+            "recommendations": []
+        }
+        
+        if tz_env != 'Asia/Singapore':
+            timezone_data["validation"]["recommendations"].append("设置环境变量 TZ=Asia/Singapore")
+        
+        if not logger_available:
+            timezone_data["validation"]["recommendations"].append("检查utils.logger模块是否正确导入")
+        
+        return jsonify(timezone_data)
+        
+    except Exception as e:
         return jsonify({
             "status": "error",
             "message": str(e),

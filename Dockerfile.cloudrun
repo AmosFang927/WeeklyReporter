@@ -18,11 +18,14 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 ENV GIT_SHA=${GIT_SHA}
 ENV PYTHONPATH=/app
+# 设置时区为新加坡（GMT+8）
+ENV TZ=Asia/Singapore
 
-# 安装系统依赖
+# 安装系统依赖（包括时区数据）
 RUN apt-get update && apt-get install -y \
     curl \
     procps \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制项目文件
