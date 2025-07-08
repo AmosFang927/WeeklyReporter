@@ -34,19 +34,32 @@ async def lifespan(app: FastAPI):
     logger.info("启动Postback数据处理系统...")
     
     try:
-        # 简化版本：使用内存存储，跳过数据库初始化
-        logger.info("使用内存存储模式，跳过数据库初始化")
+        # 启用数据库初始化
+        logger.info("初始化数据库连接...")
+        await init_db()
+        
+        # 检查数据库健康状态
+        if await check_db_health():
+            logger.info("数据库连接正常")
+        else:
+            logger.warning("数据库连接检查失败，但继续启动服务")
+        
         logger.info(f"Postback系统启动成功，监听端口: {settings.port}")
         
     except Exception as e:
         logger.error(f"系统启动失败: {str(e)}")
-        raise
+        # 在生产环境中，如果数据库连接失败，继续提供服务（使用内存存储作为备用）
+        logger.warning("数据库初始化失败，使用内存存储作为备用模式")
     
     yield
     
     # 关闭时
     logger.info("正在关闭Postback数据处理系统...")
-    logger.info("内存存储模式，无需清理数据库连接")
+    try:
+        await close_db()
+        logger.info("数据库连接已关闭")
+    except Exception as e:
+        logger.error(f"关闭数据库连接时出错: {str(e)}")
 
 
 # 创建FastAPI应用
@@ -170,11 +183,16 @@ async def health_check():
     try:
         uptime = time.time() - app_start_time
         
+        # 检查数据库状态
+        db_status = "healthy" if await check_db_health() else "unavailable"
+        db_type = "postgresql" if "postgresql" in settings.database_url else "sqlite" if "sqlite" in settings.database_url else "memory"
+        
         response_data = {
             "status": "healthy",
             "timestamp": time.time(),
             "uptime_seconds": round(uptime, 2),
-            "database": "memory_storage",  # 使用内存存储
+            "database": db_type,
+            "database_status": db_status,
             "version": settings.app_version
         }
         

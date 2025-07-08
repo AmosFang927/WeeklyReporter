@@ -41,3 +41,23 @@ secrets/
 # Test outputs
 test_output/
 individual_test_output/ 
+
+# Cloud SQL Migration - Sensitive Files
+postback_system/cloud_sql_config_secure.env
+postback_system/ssl_certs/
+postback_system/cloud-sql-proxy
+*.pem
+*.key
+*.crt
+
+# Migration Data Files (potentially sensitive)
+complete_migration_data.json
+migration_data.json
+postback_system/complete_migration_data.json
+
+# Database CLI Tools (may contain credentials)
+postback_system/db_cli.py
+postback_system/db_cli_docker.py
+
+# Supabase config (may contain credentials)
+postback_system/supabase/ 

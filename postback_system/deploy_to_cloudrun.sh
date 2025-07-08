@@ -58,7 +58,7 @@ gcloud run deploy $SERVICE_NAME \
     --port 8080 \
     --timeout 300 \
     --concurrency 100 \
-    --set-env-vars "DEBUG=false,LOG_LEVEL=INFO" \
+    --set-env-vars "DEBUG=false,LOG_LEVEL=INFO,DATABASE_URL=postgresql+asyncpg://postgres:ByteC2024PostBack@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres,DATABASE_ECHO=false,DATA_RETENTION_DAYS=30" \
     --labels "app=bytec-postback,version=$TIMESTAMP"
 
 if [ $? -ne 0 ]; then

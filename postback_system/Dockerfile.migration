@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装Python依赖
+RUN pip install asyncpg fastapi uvicorn[standard]
+
+# 复制迁移脚本和数据
+COPY deploy_migration.py /app/
+COPY complete_migration_data.json /app/
+
+# 设置环境变量
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# 运行迁移脚本
+CMD ["python", "deploy_migration.py"]

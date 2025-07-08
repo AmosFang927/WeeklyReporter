@@ -1,7 +1,7 @@
 #!/bin/bash
 # ByteC Postback服务健康检查脚本
 
-SERVICE_URL="https://bytec-public-postback-crwdeesavq-as.a.run.app"
+SERVICE_URL="https://bytec-public-postback-472712465571.asia-southeast1.run.app"
 LOG_FILE="monitoring_log.txt"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 

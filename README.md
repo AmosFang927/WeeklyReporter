@@ -1,13 +1,11 @@
 # WeeklyReporter - Involve Asia数据处理工具
 
 # TODO
-# local all partner
-# gcp all partner
 
 # postback - database
-# postback receive
+# IA postback (receive)
 # at postback
-# cary postback
+# cary postback (sent postback)
 
 # linkshare api
 

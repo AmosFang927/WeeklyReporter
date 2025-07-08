@@ -1,7 +1,7 @@
 #!/bin/bash
 # ByteC Postback性能测试脚本
 
-SERVICE_URL="https://bytec-public-postback-crwdeesavq-as.a.run.app"
+SERVICE_URL="https://bytec-public-postback-472712465571.asia-southeast1.run.app"
 REPORT_FILE="performance_report.txt"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 

@@ -41,8 +41,8 @@ async def bytec_involve_endpoint(
     sub_id: Optional[str] = Query(None, description="发布商参数1 (aff_sub)"),
     media_id: Optional[str] = Query(None, description="媒体ID (aff_sub2)"),
     click_id: Optional[str] = Query(None, description="点击ID (aff_sub3)"),
-    usd_sale_amount: Optional[float] = Query(None, description="美元销售金额"),
-    usd_payout: Optional[float] = Query(None, description="美元佣金"),
+    usd_sale_amount: Optional[str] = Query(None, description="美元销售金额 (支持字符串和数字)"),
+    usd_payout: Optional[str] = Query(None, description="美元佣金 (支持字符串和数字)"),
     offer_name: Optional[str] = Query(None, description="Offer名称"),
     conversion_id: Optional[str] = Query(None, description="转换ID"),
     conversion_datetime: Optional[str] = Query(None, description="转换时间"),
@@ -79,22 +79,44 @@ async def bytec_involve_endpoint(
     try:
         record_counter += 1
         
+        # 安全转换字符串到数字的函数
+        def safe_float_convert(value):
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                try:
+                    # 尝试转换为数字
+                    return float(value)
+                except (ValueError, TypeError):
+                    # 如果转换失败，返回None或保持原值
+                    logger.warning(f"无法转换金额参数为数字: {value}")
+                    return None
+            return None
+        
+        # 转换金额参数
+        usd_sale_amount_num = safe_float_convert(usd_sale_amount)
+        usd_payout_num = safe_float_convert(usd_payout)
+        
         # 构造处理后的数据
         processed_data = {
             "click_id": click_id,           # 直接映射
             "media_id": media_id,           # 直接映射
-            "rewards": usd_payout,          # usd_payout -> rewards
+            "rewards": usd_payout_num,      # usd_payout -> rewards (转换后的数字)
             "conversion_id": conversion_id,  # 直接映射
             "event": None,                  # 当前模板中没有event参数
             "event_time": conversion_datetime, # conversion_datetime -> event_time
             "offer_name": offer_name,       # 直接映射
-            "usd_sale_amount": usd_sale_amount, # 直接映射
+            "usd_sale_amount": usd_sale_amount_num, # 直接映射 (转换后的数字)
             "aff_sub": sub_id,              # sub_id -> aff_sub
             "aff_sub2": media_id,           # media_id -> aff_sub2
             "aff_sub3": click_id,           # click_id -> aff_sub3
-            "usd_payout": usd_payout,       # 直接映射
+            "usd_payout": usd_payout_num,   # 直接映射 (转换后的数字)
             "datetime_conversion": conversion_datetime, # conversion_datetime -> datetime_conversion
-            "raw_params": dict(request.query_params)
+            "raw_params": dict(request.query_params),
+            "original_usd_sale_amount": usd_sale_amount,  # 保留原始值
+            "original_usd_payout": usd_payout             # 保留原始值
         }
         
         # 存储到内存记录
@@ -148,8 +170,8 @@ async def bytec_involve_endpoint_post(
     sub_id: Optional[str] = Query(None, description="发布商参数1 (aff_sub)"),
     media_id: Optional[str] = Query(None, description="媒体ID (aff_sub2)"),
     click_id: Optional[str] = Query(None, description="点击ID (aff_sub3)"),
-    usd_sale_amount: Optional[float] = Query(None, description="美元销售金额"),
-    usd_payout: Optional[float] = Query(None, description="美元佣金"),
+    usd_sale_amount: Optional[str] = Query(None, description="美元销售金额 (支持字符串和数字)"),
+    usd_payout: Optional[str] = Query(None, description="美元佣金 (支持字符串和数字)"),
     offer_name: Optional[str] = Query(None, description="Offer名称"),
     conversion_id: Optional[str] = Query(None, description="转换ID"),
     conversion_datetime: Optional[str] = Query(None, description="转换时间"),
@@ -173,6 +195,22 @@ async def bytec_involve_endpoint_post(
     try:
         record_counter += 1
         
+        # 安全转换字符串到数字的函数
+        def safe_float_convert(value):
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                try:
+                    # 尝试转换为数字
+                    return float(value)
+                except (ValueError, TypeError):
+                    # 如果转换失败，返回None或保持原值
+                    logger.warning(f"无法转换金额参数为数字: {value}")
+                    return None
+            return None
+        
         # 尝试从POST body中获取参数
         body_data = {}
         try:
@@ -192,23 +230,29 @@ async def bytec_involve_endpoint_post(
             "conversion_datetime": conversion_datetime or body_data.get("conversion_datetime"),
         }
         
+        # 转换金额参数
+        usd_sale_amount_num = safe_float_convert(final_params["usd_sale_amount"])
+        usd_payout_num = safe_float_convert(final_params["usd_payout"])
+        
         # 构造处理后的数据
         processed_data = {
             "click_id": final_params["click_id"],
             "media_id": final_params["media_id"],
-            "rewards": final_params["usd_payout"],
+            "rewards": usd_payout_num,      # 转换后的数字
             "conversion_id": final_params["conversion_id"],
             "event": None,
             "event_time": final_params["conversion_datetime"],
             "offer_name": final_params["offer_name"],
-            "usd_sale_amount": final_params["usd_sale_amount"],
+            "usd_sale_amount": usd_sale_amount_num,  # 转换后的数字
             "aff_sub": final_params["sub_id"],
             "aff_sub2": final_params["media_id"],
             "aff_sub3": final_params["click_id"],
-            "usd_payout": final_params["usd_payout"],
+            "usd_payout": usd_payout_num,   # 转换后的数字
             "datetime_conversion": final_params["conversion_datetime"],
             "raw_params": dict(request.query_params),
-            "body_data": body_data
+            "body_data": body_data,
+            "original_usd_sale_amount": final_params["usd_sale_amount"],  # 保留原始值
+            "original_usd_payout": final_params["usd_payout"]             # 保留原始值
         }
         
         # 存储到内存记录

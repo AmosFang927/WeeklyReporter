@@ -359,7 +359,7 @@ ByteC Postback 监控配置报告
 - 日志查看: https://console.cloud.google.com/logs/query
 
 测试命令:
-curl https://bytec-public-postback-crwdeesavq-as.a.run.app/health
+curl https://bytec-public-postback-472712465571.asia-southeast1.run.app/health
 
 配置时间: $(date)
 EOF
@@ -375,7 +375,7 @@ echo -e "${YELLOW}正在发送测试请求...${NC}"
 
 # 发送测试请求
 for i in {1..5}; do
-    curl -s https://bytec-public-postback-crwdeesavq-as.a.run.app/health > /dev/null
+    curl -s https://bytec-public-postback-472712465571.asia-southeast1.run.app/health > /dev/null
     echo -e "${GREEN}✅ 测试请求 $i/5 完成${NC}"
     sleep 1
 done
