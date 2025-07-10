@@ -229,6 +229,28 @@ def run_weekly_reporter():
             env = os.environ.copy()
             env['PYTHONUNBUFFERED'] = '1'
             
+            # 定义进度监控
+            import threading
+            import time
+            
+            # 使用可变对象来确保在所有作用域中都能修改
+            monitor_status = {"active": True}
+            
+            def progress_monitor():
+                """进度监控线程，每5分钟检查一次"""
+                wait_time = 0
+                while monitor_status["active"] and wait_time < 3300:  # 55分钟总监控时间
+                    time.sleep(300)  # 等待5分钟
+                    wait_time += 300
+                    if monitor_status["active"]:
+                        print(f"⏱️ [Cloud Scheduler] 任务执行进度检查 (ID: {task_id}) - 已运行 {wait_time//60} 分钟")
+                        task_manager.update_task(task_id, "running", f"Task running for {wait_time//60} minutes...")
+                        sys.stdout.flush()
+            
+            # 启动进度监控线程
+            monitor_thread = threading.Thread(target=progress_monitor, daemon=True)
+            monitor_thread.start()
+            
             try:
                 task_manager.update_task(task_id, "running", "Task started, initializing...")
                 print(f"🚀 [Cloud Scheduler] 开始执行WeeklyReporter任务 (ID: {task_id})")
@@ -236,17 +258,37 @@ def run_weekly_reporter():
                 print(f"📋 [Cloud Scheduler] 执行参数: {data}")
                 sys.stdout.flush()
                 
-                # 执行任务，设置合理的资源限制
+                # 执行任务，设置合理的资源限制和详细日志
                 task_manager.update_task(task_id, "running", "Executing main process...")
+                print(f"🚀 [Cloud Scheduler] 开始执行主程序，设置55分钟超时 (ID: {task_id})")
+                sys.stdout.flush()
+                
                 result = subprocess.run(
                     cmd, 
                     check=True, 
                     text=True,
                     env=env,
-                    stdout=None,
-                    stderr=None,
-                    timeout=3300  # 55分钟超时，给健康检查留出时间
+                    stdout=subprocess.PIPE,  # 捕获输出用于日志记录
+                    stderr=subprocess.STDOUT,  # 合并错误到标准输出
+                    timeout=3540  # 59分钟超时，最大化利用Cloud Run的1小时限制
                 )
+                
+                # 输出执行结果到日志
+                if result.stdout:
+                    print(f"📋 [Cloud Scheduler] 执行输出 (ID: {task_id}):")
+                    # 只输出最后500行，避免日志过长
+                    output_lines = result.stdout.strip().split('\n')
+                    if len(output_lines) > 500:
+                        print("... (省略前面的输出) ...")
+                        for line in output_lines[-500:]:
+                            print(f"   {line}")
+                    else:
+                        for line in output_lines:
+                            print(f"   {line}")
+                    sys.stdout.flush()
+                
+                # 停止进度监控
+                monitor_status["active"] = False
                 
                 task_manager.update_task(task_id, "completed", "Task completed successfully", {
                     "return_code": result.returncode,
@@ -256,26 +298,54 @@ def run_weekly_reporter():
                 sys.stdout.flush()
                 
             except subprocess.TimeoutExpired as e:
-                task_manager.update_task(task_id, "failed", "Task timed out", {
+                # 停止进度监控
+                monitor_status["active"] = False
+                
+                task_manager.update_task(task_id, "failed", "Task timed out after 55 minutes", {
                     "error": "timeout",
                     "message": str(e)
                 })
                 print(f"⏰ [Cloud Scheduler] WeeklyReporter执行超时 (ID: {task_id}): {e}")
+                print(f"💡 [Cloud Scheduler] 建议：检查API调用是否卡住，考虑优化数据处理逻辑")
                 sys.stdout.flush()
             except subprocess.CalledProcessError as e:
+                # 停止进度监控
+                monitor_status["active"] = False
+                
+                # 捕获进程错误的详细输出
+                error_output = ""
+                if hasattr(e, 'stdout') and e.stdout:
+                    error_output = e.stdout.strip()
+                
                 task_manager.update_task(task_id, "failed", f"Process failed with return code {e.returncode}", {
                     "error": "process_error",
                     "return_code": e.returncode,
-                    "message": str(e)
+                    "message": str(e),
+                    "output": error_output
                 })
                 print(f"❌ [Cloud Scheduler] WeeklyReporter执行失败 (ID: {task_id}): {e}")
+                if error_output:
+                    print(f"📋 [Cloud Scheduler] 错误输出:")
+                    # 输出最后100行错误信息
+                    error_lines = error_output.split('\n')
+                    if len(error_lines) > 100:
+                        print("... (省略前面的错误) ...")
+                        for line in error_lines[-100:]:
+                            print(f"   ERROR: {line}")
+                    else:
+                        for line in error_lines:
+                            print(f"   ERROR: {line}")
                 sys.stdout.flush()
             except Exception as e:
+                # 停止进度监控
+                monitor_status["active"] = False
+                
                 task_manager.update_task(task_id, "failed", f"Unexpected error: {str(e)}", {
                     "error": "unexpected",
                     "message": str(e)
                 })
                 print(f"❌ [Cloud Scheduler] 执行异常 (ID: {task_id}): {str(e)}")
+                print(f"🔍 [Cloud Scheduler] 异常类型: {type(e).__name__}")
                 sys.stdout.flush()
         
         # 使用线程池执行任务

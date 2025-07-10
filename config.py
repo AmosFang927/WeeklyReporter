@@ -574,19 +574,24 @@ def get_pub_commission_rate(partner_name, offer_name):
 # 异步I/O配置
 # =============================================================================
 
-# 最大并发请求数
-MAX_CONCURRENT_REQUESTS = 5
+# 最大并发请求数 - 针对超时问题优化
+MAX_CONCURRENT_REQUESTS = 8  # 增加到8个并发请求
 
 # HTTP连接池配置
 HTTP_MAX_KEEPALIVE_CONNECTIONS = 10
 HTTP_MAX_CONNECTIONS = 20
 HTTP_KEEPALIVE_EXPIRY = 30
 
-# 异步批次处理配置
-ASYNC_BATCH_SIZE = 10  # 每批最多处理的页面数
+# 异步批次处理配置 - 针对超时优化
+ASYNC_BATCH_SIZE = 15  # 每批最多处理的页面数，提高吞吐量
 
 # 性能监控配置
 ENABLE_ASYNC_PERFORMANCE_MONITORING = True
+
+# 超时优化配置
+ENABLE_FAST_MODE = True  # 启用快速模式，减少延迟
+REDUCE_LOGGING_IN_PRODUCTION = True  # 减少生产环境日志输出
+OPTIMIZE_FOR_CLOUD_RUN = True  # Cloud Run优化模式
 
 def get_async_config():
     """获取异步配置"""

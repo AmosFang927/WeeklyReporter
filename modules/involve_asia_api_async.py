@@ -40,10 +40,10 @@ class AsyncInvolveAsiaAPI:
         # 跳过的页面记录
         self.skipped_pages = []
         
-        # 请求配置
-        self.request_timeout = getattr(config, 'REQUEST_TIMEOUT', 30)
-        self.max_retries = getattr(config, 'MAX_RETRY_ATTEMPTS', 5)
-        self.request_delay = getattr(config, 'REQUEST_DELAY', 0.5)
+        # 请求配置 - 针对超时问题优化
+        self.request_timeout = getattr(config, 'REQUEST_TIMEOUT', 45)  # 增加单个请求超时
+        self.max_retries = getattr(config, 'MAX_RETRY_ATTEMPTS', 3)  # 减少重试次数，加快失败恢复
+        self.request_delay = getattr(config, 'REQUEST_DELAY', 0.2)  # 减少请求间隔，提高速度
         
         # 并发配置
         self.max_concurrent_requests = getattr(config, 'MAX_CONCURRENT_REQUESTS', 5)
@@ -283,7 +283,7 @@ class AsyncInvolveAsiaAPI:
         
         # 步骤2: 如果有更多页面，并发获取
         if total_pages > 1:
-            remaining_pages = list(range(2, min(total_pages + 1, 101)))  # 最多获取100页避免无限请求
+            remaining_pages = list(range(2, min(total_pages + 1, 1001)))  # 最多获取1000页避免无限请求
             
             # 检查记录数限制
             if config.MAX_RECORDS_LIMIT is not None:

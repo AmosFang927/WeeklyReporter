@@ -8,6 +8,9 @@
 # cary postback (sent postback)
 
 # linkshare api
+# bytec domain
+
+ByteC2024PostBack_CloudSQL_20250708
 
 
 🚀 **自动化的周报生成和分发系统**
