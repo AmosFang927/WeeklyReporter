@@ -1,4 +1,4 @@
-# Google Cloud Run 优化版 Dockerfile
+# Google Cloud Run 优化版 Dockerfile - 修复版
 FROM python:3.11-slim
 
 # 设置工作目录
@@ -10,15 +10,17 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制依赖文件
+# 复制并安装Python依赖
 COPY requirements.txt .
-
-# 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir gunicorn uvicorn[standard]
+    && pip install --no-cache-dir gunicorn uvicorn[standard] asyncpg
 
-# 复制应用代码
-COPY . .
+# 复制postback应用相关文件
+COPY main.py .
+COPY app/ ./app/
+
+# 创建空的输出目录
+RUN mkdir -p output
 
 # 创建非root用户
 RUN useradd --create-home --shell /bin/bash app \
@@ -30,12 +32,13 @@ ENV PYTHONPATH=/app
 ENV PORT=8080
 ENV WORKERS=1
 ENV THREADS=8
+ENV DATABASE_URL="postgresql+asyncpg://postback_admin:ByteC2024PostBack_CloudSQL_20250708@/postback_db?unix_sock=/cloudsql/solar-idea-463423-h8:asia-southeast1:bytec-postback-db/.s.PGSQL.5432"
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/postback/health || exit 1
+    CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# 启动命令 - 使用gunicorn + uvicorn ASGI配置
+# 启动命令
 CMD exec gunicorn \
     --bind :$PORT \
     --workers $WORKERS \

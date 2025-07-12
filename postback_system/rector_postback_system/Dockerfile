@@ -33,7 +33,7 @@ ENV THREADS=8
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/postback/health || exit 1
+    CMD curl -f http://localhost:${PORT}/rector/health || exit 1
 
 # 启动命令 - 使用gunicorn + uvicorn ASGI配置
 CMD exec gunicorn \

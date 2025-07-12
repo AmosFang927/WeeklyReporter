@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PostBack Analytics Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        .loading {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-white mb-2">PostBack Analytics Dashboard</h1>
+            <p class="text-xl text-gray-200">自然语言查询 • 实时数据分析 • 可视化图表</p>
+        </div>
+
+        <!-- 查询区域 -->
+        <div class="card p-6 mb-8">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800">💬 自然语言查询</h2>
+            <form id="queryForm" class="space-y-4">
+                <div>
+                    <input 
+                        type="text" 
+                        id="question" 
+                        name="question" 
+                        placeholder="例如：今天有多少转化？哪个offer表现最好？最近7天的趋势如何？"
+                        class="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-lg"
+                        required
+                    >
+                </div>
+                <div class="flex space-x-4">
+                    <button 
+                        type="submit" 
+                        class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+                    >
+                        🔍 查询
+                    </button>
+                    <button 
+                        type="button" 
+                        id="clearBtn"
+                        class="bg-gray-500 hover:bg-gray-600 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+                    >
+                        🗑️ 清除
+                    </button>
+                </div>
+            </form>
+
+            <!-- 示例查询 -->
+            <div class="mt-6">
+                <h3 class="text-lg font-semibold mb-3 text-gray-700">💡 示例查询</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                    <button class="example-btn bg-blue-100 hover:bg-blue-200 text-blue-800 px-4 py-2 rounded-lg text-sm transition-colors">
+                        今天有多少转化？
+                    </button>
+                    <button class="example-btn bg-green-100 hover:bg-green-200 text-green-800 px-4 py-2 rounded-lg text-sm transition-colors">
+                        今天的总收入是多少？
+                    </button>
+                    <button class="example-btn bg-purple-100 hover:bg-purple-200 text-purple-800 px-4 py-2 rounded-lg text-sm transition-colors">
+                        哪个offer转化最多？
+                    </button>
+                    <button class="example-btn bg-red-100 hover:bg-red-200 text-red-800 px-4 py-2 rounded-lg text-sm transition-colors">
+                        最近7天的趋势如何？
+                    </button>
+                    <button class="example-btn bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-4 py-2 rounded-lg text-sm transition-colors">
+                        今天各小时的转化情况？
+                    </button>
+                    <button class="example-btn bg-indigo-100 hover:bg-indigo-200 text-indigo-800 px-4 py-2 rounded-lg text-sm transition-colors">
+                        TikTok Shop表现如何？
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 查询结果区域 -->
+        <div id="queryResults" class="card p-6 mb-8 hidden">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-800">📊 查询结果</h2>
+            <div id="queryInfo" class="mb-4"></div>
+            <div id="chartContainer" class="mb-4"></div>
+            <div id="dataTable" class="overflow-x-auto"></div>
+        </div>
+
+        <!-- 加载状态 -->
+        <div id="loadingDiv" class="card p-6 mb-8 hidden">
+            <div class="flex items-center justify-center">
+                <div class="loading mr-4"></div>
+                <span class="text-lg">正在查询数据...</span>
+            </div>
+        </div>
+
+        <!-- 仪表板统计 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="card p-6 text-center">
+                <h3 class="text-lg font-semibold text-gray-700 mb-2">今日转化数</h3>
+                <p id="todayConversions" class="text-3xl font-bold text-blue-600">-</p>
+            </div>
+            <div class="card p-6 text-center">
+                <h3 class="text-lg font-semibold text-gray-700 mb-2">今日收入</h3>
+                <p id="todayRevenue" class="text-3xl font-bold text-green-600">-</p>
+            </div>
+            <div class="card p-6 text-center">
+                <h3 class="text-lg font-semibold text-gray-700 mb-2">平均收益</h3>
+                <p id="avgPayout" class="text-3xl font-bold text-purple-600">-</p>
+            </div>
+            <div class="card p-6 text-center">
+                <h3 class="text-lg font-semibold text-gray-700 mb-2">系统状态</h3>
+                <p id="systemStatus" class="text-3xl font-bold text-orange-600">🟢</p>
+            </div>
+        </div>
+
+        <!-- 图表区域 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 最近7天趋势 -->
+            <div class="card p-6">
+                <h3 class="text-xl font-semibold mb-4 text-gray-800">📈 最近7天趋势</h3>
+                <div id="weeklyTrendChart" style="height: 400px;"></div>
+            </div>
+            
+            <!-- Top Offers -->
+            <div class="card p-6">
+                <h3 class="text-xl font-semibold mb-4 text-gray-800">🎯 Top Offers</h3>
+                <div id="topOffersChart" style="height: 400px;"></div>
+            </div>
+        </div>
+
+        <!-- 小时分布图 -->
+        <div class="card p-6 mt-6">
+            <h3 class="text-xl font-semibold mb-4 text-gray-800">🕐 今日小时分布</h3>
+            <div id="hourlyChart" style="height: 400px;"></div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let dashboardData = {};
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDashboardData();
+            setupEventListeners();
+        });
+
+        // 设置事件监听器
+        function setupEventListeners() {
+            // 查询表单
+            document.getElementById('queryForm').addEventListener('submit', handleQuery);
+            
+            // 清除按钮
+            document.getElementById('clearBtn').addEventListener('click', clearResults);
+            
+            // 示例查询按钮
+            document.querySelectorAll('.example-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.getElementById('question').value = this.textContent;
+                    handleQuery(new Event('submit'));
+                });
+            });
+        }
+
+        // 加载仪表板数据
+        async function loadDashboardData() {
+            try {
+                const response = await fetch('/api/dashboard-data');
+                dashboardData = await response.json();
+                
+                if (dashboardData.error) {
+                    console.error('Dashboard data error:', dashboardData.error);
+                    return;
+                }
+                
+                updateDashboard();
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+            }
+        }
+
+        // 更新仪表板
+        function updateDashboard() {
+            const today = dashboardData.today || {};
+            
+            // 更新统计卡片
+            document.getElementById('todayConversions').textContent = today.total_conversions || '0';
+            document.getElementById('todayRevenue').textContent = '$' + (today.total_revenue || 0).toFixed(2);
+            document.getElementById('avgPayout').textContent = '$' + (today.avg_payout || 0).toFixed(2);
+            document.getElementById('systemStatus').textContent = '🟢 正常';
+            
+            // 创建图表
+            createWeeklyTrendChart();
+            createTopOffersChart();
+            createHourlyChart();
+        }
+
+        // 创建最近7天趋势图
+        function createWeeklyTrendChart() {
+            const data = dashboardData.weekly_trend || [];
+            const trace = {
+                x: data.map(d => d.date),
+                y: data.map(d => d.count),
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: {color: '#3B82F6'},
+                marker: {color: '#3B82F6'}
+            };
+            
+            const layout = {
+                margin: {l: 40, r: 40, b: 40, t: 40},
+                xaxis: {title: '日期'},
+                yaxis: {title: '转化数'}
+            };
+            
+            Plotly.newPlot('weeklyTrendChart', [trace], layout);
+        }
+
+        // 创建Top Offers图表
+        function createTopOffersChart() {
+            const data = dashboardData.top_offers || [];
+            const trace = {
+                x: data.map(d => d.offer_name),
+                y: data.map(d => d.count),
+                type: 'bar',
+                marker: {color: '#10B981'}
+            };
+            
+            const layout = {
+                margin: {l: 40, r: 40, b: 100, t: 40},
+                xaxis: {title: 'Offer名称', tickangle: -45},
+                yaxis: {title: '转化数'}
+            };
+            
+            Plotly.newPlot('topOffersChart', [trace], layout);
+        }
+
+        // 创建小时分布图
+        function createHourlyChart() {
+            const data = dashboardData.hourly_data || [];
+            const trace = {
+                x: data.map(d => d.hour + ':00'),
+                y: data.map(d => d.count),
+                type: 'bar',
+                marker: {color: '#8B5CF6'}
+            };
+            
+            const layout = {
+                margin: {l: 40, r: 40, b: 40, t: 40},
+                xaxis: {title: '小时'},
+                yaxis: {title: '转化数'}
+            };
+            
+            Plotly.newPlot('hourlyChart', [trace], layout);
+        }
+
+        // 处理查询
+        async function handleQuery(event) {
+            event.preventDefault();
+            
+            const question = document.getElementById('question').value.trim();
+            if (!question) return;
+            
+            // 显示加载状态
+            document.getElementById('loadingDiv').classList.remove('hidden');
+            document.getElementById('queryResults').classList.add('hidden');
+            
+            try {
+                const formData = new FormData();
+                formData.append('question', question);
+                
+                const response = await fetch('/query', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayQueryResults(result);
+                } else {
+                    alert('查询失败: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Query error:', error);
+                alert('查询失败: ' + error.message);
+            } finally {
+                document.getElementById('loadingDiv').classList.add('hidden');
+            }
+        }
+
+        // 显示查询结果
+        function displayQueryResults(result) {
+            // 显示查询信息
+            document.getElementById('queryInfo').innerHTML = `
+                <div class="bg-blue-50 p-4 rounded-lg mb-4">
+                    <h4 class="font-semibold text-blue-800 mb-2">查询信息</h4>
+                    <p><strong>问题:</strong> ${result.question}</p>
+                    <p><strong>SQL:</strong> <code class="bg-gray-100 px-2 py-1 rounded">${result.sql}</code></p>
+                    <p><strong>结果数量:</strong> ${result.count} 条</p>
+                </div>
+            `;
+            
+            // 显示图表
+            if (result.chart && result.chart !== '{}') {
+                try {
+                    const chartData = JSON.parse(result.chart);
+                    if (chartData.data) {
+                        Plotly.newPlot('chartContainer', chartData.data, chartData.layout || {});
+                    }
+                } catch (e) {
+                    console.error('Chart parsing error:', e);
+                }
+            }
+            
+            // 显示数据表格
+            if (result.data && result.data.length > 0) {
+                const table = createDataTable(result.data);
+                document.getElementById('dataTable').innerHTML = table;
+            }
+            
+            // 显示结果区域
+            document.getElementById('queryResults').classList.remove('hidden');
+        }
+
+        // 创建数据表格
+        function createDataTable(data) {
+            if (!data || data.length === 0) return '<p>没有数据</p>';
+            
+            const headers = Object.keys(data[0]);
+            let html = '<table class="min-w-full bg-white border border-gray-300">';
+            
+            // 表头
+            html += '<thead class="bg-gray-50"><tr>';
+            headers.forEach(header => {
+                html += `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${header}</th>`;
+            });
+            html += '</tr></thead>';
+            
+            // 数据行
+            html += '<tbody class="bg-white divide-y divide-gray-200">';
+            data.forEach(row => {
+                html += '<tr>';
+                headers.forEach(header => {
+                    const value = row[header];
+                    const displayValue = typeof value === 'number' ? value.toFixed(2) : value;
+                    html += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${displayValue}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            
+            return html;
+        }
+
+        // 清除结果
+        function clearResults() {
+            document.getElementById('question').value = '';
+            document.getElementById('queryResults').classList.add('hidden');
+            document.getElementById('loadingDiv').classList.add('hidden');
+        }
+
+        // 定期刷新仪表板数据
+        setInterval(loadDashboardData, 60000); // 每分钟刷新一次
+    </script>
+</body>
+</html> 

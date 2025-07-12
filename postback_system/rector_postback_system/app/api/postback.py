@@ -10,7 +10,6 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, Dict, Any
 import logging
-from datetime import datetime
 
 # 简化的导入，避免复杂依赖
 try:
@@ -33,67 +32,11 @@ router = APIRouter(tags=["Postback"])
 postback_records = []
 record_counter = 0
 
-# 数据库存储函数
-async def store_conversion_to_db(
-    db: AsyncSession,
-    conversion_data: Dict[str, Any],
-    request_info: Dict[str, Any]
-):
-    """存储转化数据到数据库"""
-    try:
-        # 直接插入conversions表
-        from sqlalchemy import text
-        import json
-        
-        # 解析时间
-        datetime_conversion = None
-        if conversion_data.get('conversion_datetime'):
-            try:
-                datetime_conversion = datetime.fromisoformat(conversion_data['conversion_datetime'].replace('Z', '+00:00'))
-            except:
-                pass
-        
-        # 将conversion_data转换为JSON字符串
-        raw_data_json = json.dumps(conversion_data)
-        
-        # 插入数据
-        await db.execute(text("""
-            INSERT INTO conversions (
-                tenant_id, conversion_id, offer_name, 
-                usd_sale_amount, usd_payout, aff_sub, 
-                event_time, raw_data, created_at
-            ) VALUES (
-                :tenant_id, :conversion_id, :offer_name,
-                :usd_sale_amount, :usd_payout, :aff_sub,
-                :event_time, :raw_data, :created_at
-            )
-        """), {
-            'tenant_id': 1,  # 默认租户
-            'conversion_id': conversion_data.get('conversion_id'),
-            'offer_name': conversion_data.get('offer_name'),
-            'usd_sale_amount': conversion_data.get('usd_sale_amount'),
-            'usd_payout': conversion_data.get('usd_payout'),
-            'aff_sub': conversion_data.get('aff_sub'),
-            'event_time': datetime_conversion,
-            'raw_data': raw_data_json,  # 使用JSON字符串
-            'created_at': datetime.utcnow()
-        })
-        
-        await db.commit()
-        logger.info(f"✅ 数据库存储成功: conversion_id={conversion_data.get('conversion_id')}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ 数据库存储失败: {str(e)}")
-        await db.rollback()
-        return False
-
 
 # ====== ByteC定制化Endpoint ======
 @router.get("/involve/event")
 async def bytec_involve_endpoint(
     request: Request,
-    db: AsyncSession = Depends(get_db),  # 添加数据库依赖
     # 根据真实URL模板的参数
     sub_id: Optional[str] = Query(None, description="发布商参数1 (aff_sub)"),
     media_id: Optional[str] = Query(None, description="媒体ID (aff_sub2)"),
@@ -176,27 +119,14 @@ async def bytec_involve_endpoint(
             "original_usd_payout": usd_payout             # 保留原始值
         }
         
-        # 存储到数据库
-        db_success = False
-        if DB_AVAILABLE and db:
-            request_info = {
-                "method": request.method,
-                "url": str(request.url),
-                "headers": dict(request.headers),
-                "client_ip": request.client.host if request.client else "unknown"
-            }
-            
-            db_success = await store_conversion_to_db(db, processed_data, request_info)
-        
-        # 存储到内存记录（备用）
+        # 存储到内存记录
         record = {
             "id": record_counter,
             "timestamp": time.time(),
             "method": "GET",
             "endpoint": "/involve/event",
             "data": processed_data,
-            "processing_time_ms": 0,
-            "db_stored": db_success
+            "processing_time_ms": 0
         }
         
         # 计算处理时间
@@ -208,7 +138,7 @@ async def bytec_involve_endpoint(
         # 记录日志
         logger.info(f"ByteC Involve Postback处理完成: conversion_id={conversion_id}, "
                    f"click_id={click_id}, media_id={media_id}, "
-                   f"usd_payout={usd_payout}, db_stored={db_success}, time={processing_time:.2f}ms")
+                   f"usd_payout={usd_payout}, time={processing_time:.2f}ms")
         
         # 返回JSON响应（便于调试）
         return JSONResponse({
@@ -217,8 +147,7 @@ async def bytec_involve_endpoint(
             "endpoint": "/involve/event",
             "data": processed_data,
             "record_id": record_counter,
-            "db_stored": db_success,
-            "message": "Event received and stored successfully"
+            "message": "Event received successfully"
         })
         
     except Exception as e:
@@ -237,7 +166,6 @@ async def bytec_involve_endpoint(
 @router.post("/involve/event")
 async def bytec_involve_endpoint_post(
     request: Request,
-    db: AsyncSession = Depends(get_db),  # 添加数据库依赖
     # 根据真实URL模板的参数
     sub_id: Optional[str] = Query(None, description="发布商参数1 (aff_sub)"),
     media_id: Optional[str] = Query(None, description="媒体ID (aff_sub2)"),
@@ -327,27 +255,14 @@ async def bytec_involve_endpoint_post(
             "original_usd_payout": final_params["usd_payout"]             # 保留原始值
         }
         
-        # 存储到数据库
-        db_success = False
-        if DB_AVAILABLE and db:
-            request_info = {
-                "method": request.method,
-                "url": str(request.url),
-                "headers": dict(request.headers),
-                "client_ip": request.client.host if request.client else "unknown"
-            }
-            
-            db_success = await store_conversion_to_db(db, processed_data, request_info)
-        
-        # 存储到内存记录（备用）
+        # 存储到内存记录
         record = {
             "id": record_counter,
             "timestamp": time.time(),
             "method": "POST",
             "endpoint": "/involve/event",
             "data": processed_data,
-            "processing_time_ms": 0,
-            "db_stored": db_success
+            "processing_time_ms": 0
         }
         
         # 计算处理时间
@@ -359,7 +274,7 @@ async def bytec_involve_endpoint_post(
         # 记录日志
         logger.info(f"ByteC Involve Postback (POST) 处理完成: conversion_id={final_params['conversion_id']}, "
                    f"click_id={final_params['click_id']}, media_id={final_params['media_id']}, "
-                   f"usd_payout={final_params['usd_payout']}, db_stored={db_success}, time={processing_time:.2f}ms")
+                   f"usd_payout={final_params['usd_payout']}, time={processing_time:.2f}ms")
         
         # 返回JSON响应
         return JSONResponse({
@@ -368,8 +283,7 @@ async def bytec_involve_endpoint_post(
             "endpoint": "/involve/event",
             "data": processed_data,
             "record_id": record_counter,
-            "db_stored": db_success,
-            "message": "Event received and stored successfully"
+            "message": "Event received successfully"
         })
         
     except Exception as e:
@@ -410,55 +324,8 @@ async def involve_health_check():
         "endpoint": "/involve/event",
         "methods": ["GET", "POST"],
         "total_records": len(postback_records),
-        "timestamp": time.time(),
-        "database_enabled": DB_AVAILABLE
+        "timestamp": time.time()
     }
-
-# 添加数据库验证endpoint
-@router.get("/involve/db-test")
-async def involve_db_test(db: AsyncSession = Depends(get_db)):
-    """
-    测试数据库连接和查询
-    """
-    try:
-        from sqlalchemy import text
-        
-        # 测试数据库连接
-        result = await db.execute(text("SELECT COUNT(*) FROM conversions WHERE DATE(created_at) = CURRENT_DATE"))
-        today_count = result.scalar()
-        
-        # 获取最新的5条记录
-        result = await db.execute(text("""
-            SELECT conversion_id, offer_name, usd_sale_amount, usd_payout, created_at 
-            FROM conversions 
-            ORDER BY created_at DESC 
-            LIMIT 5
-        """))
-        recent_records = result.fetchall()
-        
-        return {
-            "status": "success",
-            "database_connection": "ok",
-            "today_conversions": today_count,
-            "recent_records": [
-                {
-                    "conversion_id": row[0],
-                    "offer_name": row[1],
-                    "usd_sale_amount": float(row[2]) if row[2] else None,
-                    "usd_payout": float(row[3]) if row[3] else None,
-                    "created_at": row[4].isoformat() if row[4] else None
-                }
-                for row in recent_records
-            ]
-        }
-        
-    except Exception as e:
-        logger.error(f"数据库测试失败: {str(e)}")
-        return {
-            "status": "error",
-            "database_connection": "failed",
-            "error": str(e)
-        }
 
 
 # ====== 原有的通用Endpoint ======

@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raw Query Dashboard - 原始查询结果展示</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+        
+        .query-section {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #444;
+        }
+        
+        .query-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .query-input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #555;
+            border-radius: 4px;
+            font-size: 14px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-family: inherit;
+        }
+        
+        .query-button {
+            padding: 12px 24px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        .query-button:hover {
+            background: #2980b9;
+        }
+        
+        .result-section {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .result-header {
+            background: #333;
+            padding: 10px 15px;
+            border-bottom: 1px solid #444;
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        .result-content {
+            padding: 15px;
+        }
+        
+        .json-display {
+            background: #1a1a1a;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 15px;
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            white-space: pre;
+            color: #e0e0e0;
+        }
+        
+        .sql-display {
+            background: #1a1a1a;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 15px;
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            color: #f39c12;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #888;
+            padding: 20px;
+        }
+        
+        .error {
+            color: #e74c3c;
+            background: #2c1810;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #e74c3c;
+        }
+        
+        .success {
+            color: #27ae60;
+            background: #1a2f1a;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #27ae60;
+        }
+        
+        .quick-queries {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        
+        .quick-query {
+            padding: 6px 12px;
+            background: #444;
+            border: 1px solid #555;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #e0e0e0;
+            transition: background 0.3s;
+        }
+        
+        .quick-query:hover {
+            background: #555;
+        }
+        
+        .status-bar {
+            background: #333;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 12px;
+        }
+        
+        .status-item {
+            display: inline-block;
+            margin-right: 20px;
+        }
+        
+        .status-ok {
+            color: #27ae60;
+        }
+        
+        .status-error {
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Raw Query Dashboard</h1>
+            <p>直接展示 Vertex AI + Gemini + Google SQL 的原始查询结果</p>
+        </div>
+        
+        <div class="status-bar">
+            <span class="status-item">状态: <span id="health-status">检查中...</span></span>
+            <span class="status-item">Vertex AI: <span id="vertex-ai-status">未知</span></span>
+            <span class="status-item">数据库: <span id="database-status">未知</span></span>
+        </div>
+        
+        <div class="query-section">
+            <h3>自然语言查询</h3>
+            <form class="query-form" onsubmit="handleQuery(event)">
+                <input type="text" class="query-input" id="query-input" placeholder="输入您的问题，例如：今天的转化数是多少？">
+                <button type="submit" class="query-button">执行查询</button>
+            </form>
+            
+            <div class="quick-queries">
+                <button class="quick-query" onclick="setQuery('今天的转化数是多少？')">今日转化数</button>
+                <button class="quick-query" onclick="setQuery('今天的总收入是多少？')">今日收入</button>
+                <button class="quick-query" onclick="setQuery('显示所有offer的排名')">Offer排名</button>
+                <button class="quick-query" onclick="setQuery('最近7天的转化趋势')">7天趋势</button>
+                <button class="quick-query" onclick="setQuery('显示所有合作伙伴的数据')">合作伙伴数据</button>
+            </div>
+        </div>
+        
+        <div class="result-section" id="result-section" style="display: none;">
+            <div class="result-header">查询结果</div>
+            <div class="result-content" id="result-content">
+                <div class="loading">执行中...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 检查系统状态
+        async function checkHealth() {
+            try {
+                const response = await fetch('/health');
+                const data = await response.json();
+                
+                document.getElementById('health-status').textContent = data.status;
+                document.getElementById('health-status').className = data.status === 'healthy' ? 'status-ok' : 'status-error';
+                
+                document.getElementById('vertex-ai-status').textContent = data.has_vertex_ai ? '可用' : '不可用';
+                document.getElementById('vertex-ai-status').className = data.has_vertex_ai ? 'status-ok' : 'status-error';
+                
+                document.getElementById('database-status').textContent = data.has_database ? '已连接' : '未连接';
+                document.getElementById('database-status').className = data.has_database ? 'status-ok' : 'status-error';
+            } catch (error) {
+                console.error('健康检查失败:', error);
+            }
+        }
+        
+        // 处理查询
+        async function handleQuery(event) {
+            event.preventDefault();
+            const question = document.getElementById('query-input').value;
+            if (!question.trim()) return;
+            
+            const resultSection = document.getElementById('result-section');
+            const resultContent = document.getElementById('result-content');
+            
+            resultSection.style.display = 'block';
+            resultContent.innerHTML = '<div class="loading">正在执行查询...</div>';
+            
+            try {
+                const formData = new FormData();
+                formData.append('question', question);
+                
+                const response = await fetch('/raw-query', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                displayRawResult(result);
+            } catch (error) {
+                resultContent.innerHTML = `<div class="error">网络错误: ${error.message}</div>`;
+            }
+        }
+        
+        // 显示原始结果
+        function displayRawResult(data) {
+            const resultContent = document.getElementById('result-content');
+            
+            let html = `
+                <div style="margin-bottom: 20px;">
+                    <h4>用户问题:</h4>
+                    <div class="json-display">${data.question}</div>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <h4>AI生成的SQL:</h4>
+                    <div class="sql-display">${data.generated_sql || '无'}</div>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <h4>执行结果:</h4>
+                    <div class="json-display">${JSON.stringify(data.execution_result, null, 2)}</div>
+                </div>
+                
+                <div style="margin-bottom: 20px;">
+                    <h4>完整响应数据:</h4>
+                    <div class="json-display">${JSON.stringify(data, null, 2)}</div>
+                </div>
+            `;
+            
+            resultContent.innerHTML = html;
+        }
+        
+        // 设置查询
+        function setQuery(query) {
+            document.getElementById('query-input').value = query;
+        }
+        
+        // 页面加载完成后执行
+        window.onload = function() {
+            checkHealth();
+        };
+    </script>
+</body>
+</html> 

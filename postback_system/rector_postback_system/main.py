@@ -17,7 +17,7 @@ from app.config import settings, setup_logging
 from app.models.database import init_db, close_db, check_db_health
 from app.api.postback import router as postback_router
 from app.api.multi_partner import router as multi_partner_router
-from app.api.admin import router as admin_router
+from app.api.rector_postback import router as rector_postback_router
 # from app.api.tenant import router as tenant_router
 # from app.api.dashboard import router as dashboard_router
 
@@ -171,8 +171,12 @@ async def root():
         "version": settings.app_version,
         "status": "running",
         "uptime_seconds": round(uptime, 2),
-        "involve_endpoint": "/involve/event",
+        "postback_endpoint": "/postback/",
         "multi_partner_endpoint": "/partner/",
+        "rector_endpoint": "/aa7dfd32-953b-42ee-a77e-fba556a71d2f",
+        "rector_records": "/rector/records",
+        "rector_health": "/rector/health",
+        "rector_stats": "/rector/stats",
         "health_check": "/health",
         "docs": "/docs" if settings.debug else "disabled",
         "environment": "development" if settings.debug else "production"
@@ -227,8 +231,12 @@ async def system_info():
         "version": settings.app_version,
         "uptime_seconds": round(uptime, 2),
         "endpoints": {
-            "involve": "/involve/event",
+            "postback": "/postback/",
             "multi_partner": "/partner/",
+            "rector_postback": "/aa7dfd32-953b-42ee-a77e-fba556a71d2f",
+            "rector_records": "/rector/records",
+            "rector_health": "/rector/health",
+            "rector_stats": "/rector/stats",
             "health": "/health",
             "docs": "/docs" if settings.debug else "disabled"
         },
@@ -243,9 +251,9 @@ async def system_info():
 
 
 # 注册路由
-app.include_router(postback_router, tags=["Postback"])  # 移除前綴，直接使用 /involve/event
+app.include_router(postback_router, prefix="/postback", tags=["Postback"])
 app.include_router(multi_partner_router, prefix="/partner", tags=["Multi-Partner"])
-app.include_router(admin_router, prefix="/admin", tags=["Admin"])
+app.include_router(rector_postback_router, tags=["Rector-Postback"])
 
 
 if __name__ == "__main__":

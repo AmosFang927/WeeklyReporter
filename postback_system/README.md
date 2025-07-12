@@ -1,5 +1,19 @@
 # Postback数据处理系统
 
+🆕 添加自然语言查询功能
+
+
+创建GCP Cloud SQL PostgreSQL实例，配置网络和安全设置
+ByteC2024PostBack_CloudSQL_20250708
+将现有PostgreSQL数据迁移到Cloud SQL实例
+更新Cloud Run配置连接Cloud SQL，配置VPC连接器
+部署更新后的postback服务到bytec-public-postback
+
+配置Looker Studio连接Cloud SQL，创建数据可视化仪表板
+使用AppSheet创建Partner配置管理界面
+配置BigQuery数据同步和Vertex AI自然语言查询功能
+端到端测试整个GCP原生系统
+
 ## 系统概述
 
 这是一个实时接收和处理电商转化回传数据的系统，专为Shopee、TikTok Shop等电商平台设计，支持Involve Asia的Postback标准。

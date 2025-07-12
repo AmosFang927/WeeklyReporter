@@ -65,7 +65,7 @@ async def dynamic_partner_endpoint(
         
         # 步驟1: 查找Partner
         logger.info(f"🔍 步驟1: 查找Partner配置")
-        partner = await partner_service.get_partner_by_endpoint(endpoint_path)
+        partner = await partner_service.get_partner_by_endpoint(f"/{endpoint_path}")
         
         if not partner:
             logger.error(f"❌ 未找到Partner配置: endpoint_path={endpoint_path}")
@@ -201,7 +201,7 @@ async def dynamic_partner_endpoint_post(
         
         # 步驟1: 查找Partner
         logger.info(f"🔍 步驟1: 查找Partner配置")
-        partner = await partner_service.get_partner_by_endpoint(endpoint_path)
+        partner = await partner_service.get_partner_by_endpoint(f"/{endpoint_path}")
         
         if not partner:
             logger.error(f"❌ 未找到Partner配置: endpoint_path={endpoint_path}")

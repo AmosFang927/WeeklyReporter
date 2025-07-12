@@ -9,6 +9,9 @@
 
 # linkshare api
 # bytec domain
+# rta
+
+curl -s "https://bytec-public-postback-crwdeesavq-as.a.run.app/docs" | head -20
 
 ByteC2024PostBack_CloudSQL_20250708
 
