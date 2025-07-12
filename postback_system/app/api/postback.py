@@ -37,7 +37,8 @@ record_counter = 0
 async def store_conversion_to_db(
     db: AsyncSession,
     conversion_data: Dict[str, Any],
-    request_info: Dict[str, Any]
+    request_info: Dict[str, Any],
+    partner_id: int = 1  # 添加partner_id参数，默认为involve_asia (ID=1)
 ):
     """存储转化数据到数据库"""
     try:
@@ -56,16 +57,16 @@ async def store_conversion_to_db(
         # 将conversion_data转换为JSON字符串
         raw_data_json = json.dumps(conversion_data)
         
-        # 插入数据
+        # 插入数据，添加partner_id字段
         await db.execute(text("""
             INSERT INTO conversions (
                 tenant_id, conversion_id, offer_name, 
                 usd_sale_amount, usd_payout, aff_sub, 
-                event_time, raw_data, created_at
+                event_time, raw_data, created_at, partner_id
             ) VALUES (
                 :tenant_id, :conversion_id, :offer_name,
                 :usd_sale_amount, :usd_payout, :aff_sub,
-                :event_time, :raw_data, :created_at
+                :event_time, :raw_data, :created_at, :partner_id
             )
         """), {
             'tenant_id': 1,  # 默认租户
@@ -76,11 +77,12 @@ async def store_conversion_to_db(
             'aff_sub': conversion_data.get('aff_sub'),
             'event_time': datetime_conversion,
             'raw_data': raw_data_json,  # 使用JSON字符串
-            'created_at': datetime.utcnow()
+            'created_at': datetime.utcnow(),
+            'partner_id': partner_id  # 添加partner_id
         })
         
         await db.commit()
-        logger.info(f"✅ 数据库存储成功: conversion_id={conversion_data.get('conversion_id')}")
+        logger.info(f"✅ 数据库存储成功: conversion_id={conversion_data.get('conversion_id')}, partner_id={partner_id}")
         return True
         
     except Exception as e:
@@ -186,7 +188,7 @@ async def bytec_involve_endpoint(
                 "client_ip": request.client.host if request.client else "unknown"
             }
             
-            db_success = await store_conversion_to_db(db, processed_data, request_info)
+            db_success = await store_conversion_to_db(db, processed_data, request_info, partner_id=1)  # InvolveAsia ID=1
         
         # 存储到内存记录（备用）
         record = {
@@ -337,7 +339,7 @@ async def bytec_involve_endpoint_post(
                 "client_ip": request.client.host if request.client else "unknown"
             }
             
-            db_success = await store_conversion_to_db(db, processed_data, request_info)
+            db_success = await store_conversion_to_db(db, processed_data, request_info, partner_id=1)  # InvolveAsia ID=1
         
         # 存储到内存记录（备用）
         record = {
@@ -381,6 +383,297 @@ async def bytec_involve_endpoint_post(
             "endpoint": "/involve/event",
             "error": str(e),
             "message": "Event processing failed"
+        }, status_code=500)
+
+
+# ====== AccessTrade定制化Endpoint ======
+@router.get("/acesstrade/event")
+async def bytec_acesstrade_endpoint(
+    request: Request,
+    db: AsyncSession = Depends(get_db),  # 添加数据库依赖
+    # AccessTrade参数（与InvolveAsia相同的参数结构）
+    sub_id: Optional[str] = Query(None, description="发布商参数1 (aff_sub)"),
+    media_id: Optional[str] = Query(None, description="媒体ID (aff_sub2)"),
+    click_id: Optional[str] = Query(None, description="点击ID (aff_sub3)"),
+    usd_sale_amount: Optional[str] = Query(None, description="美元销售金额 (支持字符串和数字)"),
+    usd_payout: Optional[str] = Query(None, description="美元佣金 (支持字符串和数字)"),
+    offer_name: Optional[str] = Query(None, description="Offer名称"),
+    conversion_id: Optional[str] = Query(None, description="转换ID"),
+    conversion_datetime: Optional[str] = Query(None, description="转换时间"),
+    
+    # 额外的可选参数
+    offer_id: Optional[str] = Query(None, description="Offer ID"),
+    order_id: Optional[str] = Query(None, description="订单ID"),
+    status: Optional[str] = Query(None, description="状态"),
+    
+    # Token参数（用于租户识别）
+    ts_token: Optional[str] = Query(None, description="TS Token"),
+    ts_param: Optional[str] = Query(None, description="TS Parameter"),
+    tlm_token: Optional[str] = Query(None, description="TLM Token"),
+):
+    """
+    ByteC定制化AccessTrade Postback端点
+    
+    真实URL模板：
+    https://bytec-public-postback-472712465571.asia-southeast1.run.app/acesstrade/event?sub_id={aff_sub}&media_id={aff_sub2}&click_id={aff_sub3}&usd_sale_amount={usd_sale_amount}&usd_payout={usd_payout}&offer_name={offer_name}&conversion_id={conversion_id}&conversion_datetime={conversion_datetime}
+    
+    参数映射：
+    - sub_id -> aff_sub
+    - media_id -> aff_sub2
+    - click_id -> aff_sub3
+    - usd_sale_amount -> usd_sale_amount
+    - usd_payout -> usd_payout
+    - offer_name -> offer_name
+    - conversion_id -> conversion_id
+    - conversion_datetime -> datetime_conversion
+    """
+    global record_counter
+    start_time = time.time()
+    
+    try:
+        record_counter += 1
+        
+        # 安全转换字符串到数字的函数
+        def safe_float_convert(value):
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                try:
+                    # 尝试转换为数字
+                    return float(value)
+                except (ValueError, TypeError):
+                    # 如果转换失败，返回None或保持原值
+                    logger.warning(f"无法转换金额参数为数字: {value}")
+                    return None
+            return None
+        
+        # 转换金额参数
+        usd_sale_amount_num = safe_float_convert(usd_sale_amount)
+        usd_payout_num = safe_float_convert(usd_payout)
+        
+        # 构造处理后的数据
+        processed_data = {
+            "click_id": click_id,           # 直接映射
+            "media_id": media_id,           # 直接映射
+            "rewards": usd_payout_num,      # usd_payout -> rewards (转换后的数字)
+            "conversion_id": conversion_id,  # 直接映射
+            "event": None,                  # 当前模板中没有event参数
+            "event_time": conversion_datetime, # conversion_datetime -> event_time
+            "offer_name": offer_name,       # 直接映射
+            "usd_sale_amount": usd_sale_amount_num, # 直接映射 (转换后的数字)
+            "aff_sub": sub_id,              # sub_id -> aff_sub
+            "aff_sub2": media_id,           # media_id -> aff_sub2
+            "aff_sub3": click_id,           # click_id -> aff_sub3
+            "usd_payout": usd_payout_num,   # 直接映射 (转换后的数字)
+            "datetime_conversion": conversion_datetime, # conversion_datetime -> datetime_conversion
+            "raw_params": dict(request.query_params),
+            "original_usd_sale_amount": usd_sale_amount,  # 保留原始值
+            "original_usd_payout": usd_payout,            # 保留原始值
+            "partner": "acesstrade"                       # 标识为AccessTrade
+        }
+        
+        # 存储到数据库
+        db_success = False
+        if DB_AVAILABLE and db:
+            request_info = {
+                "method": request.method,
+                "url": str(request.url),
+                "headers": dict(request.headers),
+                "client_ip": request.client.host if request.client else "unknown"
+            }
+            
+            db_success = await store_conversion_to_db(db, processed_data, request_info, partner_id=2) # AccessTrade ID is 2
+        
+        # 存储到内存记录（备用）
+        record = {
+            "id": record_counter,
+            "timestamp": time.time(),
+            "method": "GET",
+            "endpoint": "/acesstrade/event",
+            "data": processed_data,
+            "processing_time_ms": 0,
+            "db_stored": db_success
+        }
+        
+        # 计算处理时间
+        processing_time = (time.time() - start_time) * 1000
+        record["processing_time_ms"] = processing_time
+        
+        postback_records.append(record)
+        
+        # 记录日志
+        logger.info(f"ByteC AccessTrade Postback处理完成: conversion_id={conversion_id}, "
+                   f"click_id={click_id}, media_id={media_id}, "
+                   f"usd_payout={usd_payout}, db_stored={db_success}, time={processing_time:.2f}ms")
+        
+        # 返回JSON响应（便于调试）
+        return JSONResponse({
+            "status": "success",
+            "method": "GET",
+            "endpoint": "/acesstrade/event",
+            "data": processed_data,
+            "record_id": record_counter,
+            "db_stored": db_success,
+            "message": "AccessTrade event received and stored successfully"
+        })
+        
+    except Exception as e:
+        processing_time = (time.time() - start_time) * 1000
+        logger.error(f"ByteC AccessTrade Postback处理异常: conversion_id={conversion_id}, "
+                    f"error={str(e)}, time={processing_time:.2f}ms")
+        return JSONResponse({
+            "status": "error",
+            "method": "GET",
+            "endpoint": "/acesstrade/event",
+            "error": str(e),
+            "message": "AccessTrade event processing failed"
+        }, status_code=500)
+
+
+@router.get("/digenesia/event")
+async def bytec_digenesia_endpoint(
+    request: Request,
+    db: AsyncSession = Depends(get_db),  # 添加数据库依赖
+    # Digenesia参数（与InvolveAsia相同的参数结构）
+    sub_id: Optional[str] = Query(None, description="发布商参数1 (aff_sub)"),
+    media_id: Optional[str] = Query(None, description="媒体ID (aff_sub2)"),
+    click_id: Optional[str] = Query(None, description="点击ID (aff_sub3)"),
+    usd_sale_amount: Optional[str] = Query(None, description="美元销售金额 (支持字符串和数字)"),
+    usd_payout: Optional[str] = Query(None, description="美元佣金 (支持字符串和数字)"),
+    offer_name: Optional[str] = Query(None, description="Offer名称"),
+    conversion_id: Optional[str] = Query(None, description="转换ID"),
+    conversion_datetime: Optional[str] = Query(None, description="转换时间"),
+    
+    # 额外的可选参数
+    offer_id: Optional[str] = Query(None, description="Offer ID"),
+    order_id: Optional[str] = Query(None, description="订单ID"),
+    status: Optional[str] = Query(None, description="状态"),
+    
+    # Token参数（用于租户识别）
+    ts_token: Optional[str] = Query(None, description="TS Token"),
+    ts_param: Optional[str] = Query(None, description="TS Parameter"),
+    tlm_token: Optional[str] = Query(None, description="TLM Token"),
+):
+    """
+    ByteC定制化Digenesia Postback端点
+    
+    URL模板：
+    https://bytec-public-postback-472712465571.asia-southeast1.run.app/digenesia/event?sub_id={aff_sub}&media_id={aff_sub2}&click_id={aff_sub3}&usd_sale_amount={usd_sale_amount}&usd_payout={usd_payout}&offer_name={offer_name}&conversion_id={conversion_id}&conversion_datetime={conversion_datetime}
+    
+    参数映射：
+    - sub_id -> aff_sub
+    - media_id -> aff_sub2
+    - click_id -> aff_sub3
+    - usd_sale_amount -> usd_sale_amount
+    - usd_payout -> usd_payout
+    - offer_name -> offer_name
+    - conversion_id -> conversion_id
+    - conversion_datetime -> datetime_conversion
+    """
+    global record_counter
+    start_time = time.time()
+    
+    try:
+        record_counter += 1
+        
+        # 安全转换字符串到数字的函数
+        def safe_float_convert(value):
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                try:
+                    # 尝试转换为数字
+                    return float(value)
+                except (ValueError, TypeError):
+                    # 如果转换失败，返回None或保持原值
+                    logger.warning(f"无法转换金额参数为数字: {value}")
+                    return None
+            return None
+        
+        # 转换金额参数
+        usd_sale_amount_num = safe_float_convert(usd_sale_amount)
+        usd_payout_num = safe_float_convert(usd_payout)
+        
+        # 构造处理后的数据
+        processed_data = {
+            "click_id": click_id,           # 直接映射
+            "media_id": media_id,           # 直接映射
+            "rewards": usd_payout_num,      # usd_payout -> rewards (转换后的数字)
+            "conversion_id": conversion_id,  # 直接映射
+            "event": None,                  # 当前模板中没有event参数
+            "event_time": conversion_datetime, # conversion_datetime -> event_time
+            "offer_name": offer_name,       # 直接映射
+            "usd_sale_amount": usd_sale_amount_num, # 直接映射 (转换后的数字)
+            "aff_sub": sub_id,              # sub_id -> aff_sub
+            "aff_sub2": media_id,           # media_id -> aff_sub2
+            "aff_sub3": click_id,           # click_id -> aff_sub3
+            "usd_payout": usd_payout_num,   # 直接映射 (转换后的数字)
+            "datetime_conversion": conversion_datetime, # conversion_datetime -> datetime_conversion
+            "raw_params": dict(request.query_params),
+            "original_usd_sale_amount": usd_sale_amount,  # 保留原始值
+            "original_usd_payout": usd_payout,             # 保留原始值
+            "partner": "digenesia"          # 添加partner标识
+        }
+        
+        # 存储到数据库
+        db_success = False
+        if DB_AVAILABLE and db:
+            request_info = {
+                "method": request.method,
+                "url": str(request.url),
+                "headers": dict(request.headers),
+                "client_ip": request.client.host if request.client else "unknown"
+            }
+            
+            db_success = await store_conversion_to_db(db, processed_data, request_info, partner_id=2)  # Digenesia ID=2
+        
+        # 存储到内存记录（备用）
+        record = {
+            "id": record_counter,
+            "timestamp": time.time(),
+            "method": "GET",
+            "endpoint": "/digenesia/event",
+            "data": processed_data,
+            "processing_time_ms": 0,
+            "db_stored": db_success
+        }
+        
+        # 计算处理时间
+        processing_time = (time.time() - start_time) * 1000
+        record["processing_time_ms"] = processing_time
+        
+        postback_records.append(record)
+        
+        # 记录日志
+        logger.info(f"ByteC Digenesia Postback处理完成: conversion_id={conversion_id}, "
+                   f"click_id={click_id}, media_id={media_id}, "
+                   f"usd_payout={usd_payout}, db_stored={db_success}, time={processing_time:.2f}ms")
+        
+        # 返回JSON响应（便于调试）
+        return JSONResponse({
+            "status": "success",
+            "method": "GET",
+            "endpoint": "/digenesia/event",
+            "data": processed_data,
+            "record_id": record_counter,
+            "db_stored": db_success,
+            "message": "Digenesia event received and stored successfully"
+        })
+        
+    except Exception as e:
+        processing_time = (time.time() - start_time) * 1000
+        logger.error(f"ByteC Digenesia Postback处理异常: conversion_id={conversion_id}, "
+                    f"error={str(e)}, time={processing_time:.2f}ms")
+        return JSONResponse({
+            "status": "error",
+            "method": "GET",
+            "endpoint": "/digenesia/event",
+            "error": str(e),
+            "message": "Digenesia event processing failed"
         }, status_code=500)
 
 

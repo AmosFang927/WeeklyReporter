@@ -198,6 +198,7 @@ class PostbackDataManager:
         self._cache = {}
         self._cache_timestamp = {}
         self.cache_ttl = 300  # 5分钟缓存
+        self.partners = {}  # 缓存partners信息
         self._connection_string = f"postgresql://{POSTBACK_DB_CONFIG['user']}:{POSTBACK_DB_CONFIG['password']}@{POSTBACK_DB_CONFIG['host']}:{POSTBACK_DB_CONFIG['port']}/{POSTBACK_DB_CONFIG['database']}"
         self._initialized = False
         self._lock = asyncio.Lock()
@@ -252,13 +253,54 @@ class PostbackDataManager:
             converted_data.append(converted_row)
         return converted_data
     
-    def get_comprehensive_data(self, days: int = 7) -> pd.DataFrame:
-        """获取综合数据用于PandasAI查询"""
-        return self._run_async(self._get_comprehensive_data(days))
+    def get_partners(self) -> Dict[str, Dict]:
+        """获取所有活跃的Partners"""
+        cache_key = "partners"
+        if self._is_cache_valid(cache_key):
+            return self._cache[cache_key]
+        
+        partners = self._run_async(self._get_partners())
+        self._cache[cache_key] = partners
+        self._cache_timestamp[cache_key] = datetime.now()
+        return partners
     
-    async def _get_comprehensive_data(self, days: int = 7) -> pd.DataFrame:
+    async def _get_partners(self) -> Dict[str, Dict]:
+        """获取Partners的异步版本"""
+        try:
+            conn = await self._get_db_connection()
+            
+            query = """
+                SELECT id, partner_code, partner_name, endpoint_path
+                FROM partners
+                WHERE is_active = true
+                ORDER BY partner_code
+            """
+            
+            rows = await conn.fetch(query)
+            await conn.close()
+            
+            partners = {}
+            for row in rows:
+                partners[row['partner_code']] = {
+                    'id': row['id'],
+                    'name': row['partner_name'],
+                    'endpoint': row['endpoint_path']
+                }
+            
+            logger.info(f"✅ 获取Partners: {len(partners)} 个")
+            return partners
+            
+        except Exception as e:
+            logger.error(f"❌ 获取Partners失败: {e}")
+            return {}
+    
+    def get_comprehensive_data(self, days: int = 7, partner_id: Optional[int] = None) -> pd.DataFrame:
+        """获取综合数据用于PandasAI查询"""
+        return self._run_async(self._get_comprehensive_data(days, partner_id))
+    
+    async def _get_comprehensive_data(self, days: int = 7, partner_id: Optional[int] = None) -> pd.DataFrame:
         """获取综合数据的异步版本"""
-        cache_key = f"comprehensive_data_{days}"
+        cache_key = f"comprehensive_data_{days}_{partner_id}"
         
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
@@ -267,32 +309,39 @@ class PostbackDataManager:
         try:
             conn = await self._get_db_connection()
             
+            # 构建查询条件
+            where_conditions = ["c.created_at >= CURRENT_DATE - INTERVAL '{} days'".format(days)]
+            if partner_id is not None:
+                where_conditions.append(f"c.partner_id = {partner_id}")
+            
             query = """
             SELECT 
-                id,
-                tenant_id,
-                conversion_id,
-                offer_name,
-                usd_sale_amount,
-                usd_payout,
-                aff_sub,
-                event_time,
-                created_at,
-                DATE(created_at) as conversion_date,
-                EXTRACT(HOUR FROM created_at) as conversion_hour,
-                EXTRACT(DOW FROM created_at) as day_of_week,
+                c.id,
+                c.tenant_id,
+                c.conversion_id,
+                c.offer_name,
+                c.usd_sale_amount,
+                c.usd_payout,
+                c.aff_sub,
+                c.event_time,
+                c.created_at,
+                c.partner_id,
+                DATE(c.created_at) as conversion_date,
+                EXTRACT(HOUR FROM c.created_at) as conversion_hour,
+                EXTRACT(DOW FROM c.created_at) as day_of_week,
                 CASE 
-                    WHEN EXTRACT(DOW FROM created_at) IN (0, 6) THEN 'Weekend'
+                    WHEN EXTRACT(DOW FROM c.created_at) IN (0, 6) THEN 'Weekend'
                     ELSE 'Weekday'
                 END as day_type,
-                raw_data->>'click_id' as click_id,
-                raw_data->>'media_id' as media_id,
-                raw_data->>'sub_id' as sub_id_raw
-            FROM conversions 
-            WHERE created_at >= CURRENT_DATE - INTERVAL '{} days'
-            ORDER BY created_at DESC
+                -- 从raw_data JSON中提取click_id和media_id
+                COALESCE(c.raw_data->>'click_id', '') as click_id,
+                COALESCE(c.raw_data->>'media_id', '') as media_id,
+                c.aff_sub as sub_id_raw
+            FROM conversions c
+            WHERE {}
+            ORDER BY c.created_at DESC
             LIMIT 1000
-            """.format(days)
+            """.format(" AND ".join(where_conditions))
             
             result = await conn.fetch(query)
             data = self._convert_decimal_to_float([dict(row) for row in result])
@@ -317,13 +366,13 @@ class PostbackDataManager:
             if conn:
                 await conn.close()
     
-    def get_today_summary(self) -> pd.DataFrame:
+    def get_today_summary(self, partner_id: Optional[int] = None) -> pd.DataFrame:
         """获取今日汇总数据"""
-        return self._run_async(self._get_today_summary())
+        return self._run_async(self._get_today_summary(partner_id))
     
-    async def _get_today_summary(self) -> pd.DataFrame:
+    async def _get_today_summary(self, partner_id: Optional[int] = None) -> pd.DataFrame:
         """获取今日汇总数据的异步版本"""
-        cache_key = "today_summary"
+        cache_key = f"today_summary_{partner_id}"
         
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
@@ -332,22 +381,26 @@ class PostbackDataManager:
         try:
             conn = await self._get_db_connection()
             
+            # 构建查询条件
+            where_conditions = ["DATE(c.created_at) = CURRENT_DATE", "c.usd_payout IS NOT NULL"]
+            if partner_id is not None:
+                where_conditions.append(f"c.partner_id = {partner_id}")
+            
             query = """
             SELECT 
-                DATE(created_at) as date,
-                offer_name,
+                DATE(c.created_at) as date,
+                c.offer_name,
                 COUNT(*) as conversion_count,
-                SUM(usd_payout) as total_revenue,
-                AVG(usd_payout) as avg_payout,
-                MIN(usd_payout) as min_payout,
-                MAX(usd_payout) as max_payout,
-                COUNT(DISTINCT aff_sub) as unique_sub_ids
-            FROM conversions 
-            WHERE DATE(created_at) = CURRENT_DATE
-                AND usd_payout IS NOT NULL
-            GROUP BY DATE(created_at), offer_name
+                SUM(c.usd_payout) as total_revenue,
+                AVG(c.usd_payout) as avg_payout,
+                MIN(c.usd_payout) as min_payout,
+                MAX(c.usd_payout) as max_payout,
+                COUNT(DISTINCT c.aff_sub) as unique_sub_ids
+            FROM conversions c
+            WHERE {}
+            GROUP BY DATE(c.created_at), c.offer_name
             ORDER BY conversion_count DESC
-            """
+            """.format(" AND ".join(where_conditions))
             
             result = await conn.fetch(query)
             data = self._convert_decimal_to_float([dict(row) for row in result])
@@ -366,13 +419,13 @@ class PostbackDataManager:
             if conn:
                 await conn.close()
     
-    def get_hourly_trend(self, days: int = 7) -> pd.DataFrame:
+    def get_hourly_trend(self, days: int = 7, partner_id: Optional[int] = None) -> pd.DataFrame:
         """获取按小时的转化趋势"""
-        return self._run_async(self._get_hourly_trend(days))
+        return self._run_async(self._get_hourly_trend(days, partner_id))
     
-    async def _get_hourly_trend(self, days: int = 7) -> pd.DataFrame:
+    async def _get_hourly_trend(self, days: int = 7, partner_id: Optional[int] = None) -> pd.DataFrame:
         """获取按小时的转化趋势的异步版本"""
-        cache_key = f"hourly_trend_{days}"
+        cache_key = f"hourly_trend_{days}_{partner_id}"
         
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
@@ -381,17 +434,22 @@ class PostbackDataManager:
         try:
             conn = await self._get_db_connection()
             
+            # 构建查询条件
+            where_conditions = ["c.created_at >= CURRENT_DATE - INTERVAL '{} days'".format(days)]
+            if partner_id is not None:
+                where_conditions.append(f"c.partner_id = {partner_id}")
+            
             query = """
             SELECT 
-                DATE(created_at) as date,
-                EXTRACT(HOUR FROM created_at) as hour,
+                DATE(c.created_at) as date,
+                EXTRACT(HOUR FROM c.created_at) as hour,
                 COUNT(*) as conversion_count,
-                SUM(COALESCE(usd_payout, 0)) as total_revenue
-            FROM conversions 
-            WHERE created_at >= CURRENT_DATE - INTERVAL '{} days'
-            GROUP BY DATE(created_at), EXTRACT(HOUR FROM created_at)
+                SUM(COALESCE(c.usd_payout, 0)) as total_revenue
+            FROM conversions c
+            WHERE {}
+            GROUP BY DATE(c.created_at), EXTRACT(HOUR FROM c.created_at)
             ORDER BY date, hour
-            """.format(days)
+            """.format(" AND ".join(where_conditions))
             
             result = await conn.fetch(query)
             data = self._convert_decimal_to_float([dict(row) for row in result])
@@ -410,13 +468,13 @@ class PostbackDataManager:
             if conn:
                 await conn.close()
     
-    def get_partner_performance(self, days: int = 7) -> pd.DataFrame:
+    def get_partner_performance(self, days: int = 7, partner_id: Optional[int] = None) -> pd.DataFrame:
         """获取Sub ID表现数据"""
-        return self._run_async(self._get_partner_performance(days))
+        return self._run_async(self._get_partner_performance(days, partner_id))
     
-    async def _get_partner_performance(self, days: int = 7) -> pd.DataFrame:
+    async def _get_partner_performance(self, days: int = 7, partner_id: Optional[int] = None) -> pd.DataFrame:
         """获取Sub ID表现数据的异步版本"""
-        cache_key = f"partner_performance_{days}"
+        cache_key = f"partner_performance_{days}_{partner_id}"
         
         if self._is_cache_valid(cache_key):
             return self._cache[cache_key]
@@ -425,24 +483,27 @@ class PostbackDataManager:
         try:
             conn = await self._get_db_connection()
             
+            # 构建查询条件
+            where_conditions = ["c.created_at >= CURRENT_DATE - INTERVAL '{} days'".format(days)]
+            if partner_id is not None:
+                where_conditions.append(f"c.partner_id = {partner_id}")
+            
             query = """
             SELECT 
-                aff_sub as sub_id,
+                c.aff_sub as sub_id,
                 COUNT(*) as conversion_count,
-                SUM(COALESCE(usd_payout, 0)) as total_revenue,
-                AVG(COALESCE(usd_payout, 0)) as avg_payout,
-                COUNT(DISTINCT offer_name) as unique_offers,
-                MIN(created_at) as first_conversion,
-                MAX(created_at) as last_conversion
-            FROM conversions 
-            WHERE created_at >= CURRENT_DATE - INTERVAL '{} days'
-                AND aff_sub IS NOT NULL 
-                AND aff_sub != ''
-            GROUP BY aff_sub
-            HAVING COUNT(*) >= 2
-            ORDER BY conversion_count DESC
-            LIMIT 20
-            """.format(days)
+                SUM(COALESCE(c.usd_payout, 0)) as total_revenue,
+                AVG(COALESCE(c.usd_payout, 0)) as avg_payout,
+                COUNT(DISTINCT c.offer_name) as unique_offers,
+                MIN(c.created_at) as first_conversion,
+                MAX(c.created_at) as last_conversion
+            FROM conversions c
+            WHERE {}
+                AND c.aff_sub IS NOT NULL 
+                AND c.aff_sub != ''
+            GROUP BY c.aff_sub
+            ORDER BY total_revenue DESC
+            """.format(" AND ".join(where_conditions))
             
             result = await conn.fetch(query)
             data = self._convert_decimal_to_float([dict(row) for row in result])
@@ -695,6 +756,22 @@ def main():
             os.environ["GOOGLE_GEMINI_API_KEY"] = api_key_input
             pandasai_manager.initialize_llm()
     
+    # 获取Partners列表
+    partners = data_manager.get_partners()
+    
+    # Partner选择器
+    partner_options = [("all", "所有Partners")] + [(code, info['name']) for code, info in partners.items()]
+    selected_partner = st.sidebar.selectbox(
+        "🤝 选择Partner",
+        options=[option[0] for option in partner_options],
+        format_func=lambda x: next(option[1] for option in partner_options if option[0] == x),
+        index=0,
+        help="选择要查看数据的Partner"
+    )
+    
+    # 获取选中的partner_id
+    selected_partner_id = None if selected_partner == "all" else partners[selected_partner]['id']
+    
     # 时间范围选择
     days_range = st.sidebar.selectbox(
         "📅 数据时间范围",
@@ -713,23 +790,30 @@ def main():
     # 数据加载
     with st.spinner("📡 正在加载数据..."):
         try:
-            # 获取各种数据
-            comprehensive_data = data_manager.get_comprehensive_data(days_range)
-            today_summary = data_manager.get_today_summary()
-            hourly_trend = data_manager.get_hourly_trend(days_range)
-            sub_id_performance = data_manager.get_partner_performance(days_range)
-            region_analysis = data_manager.get_country_analysis(days_range)
+            # 获取各种数据（按选中的Partner过滤）
+            comprehensive_data = data_manager.get_comprehensive_data(days_range, selected_partner_id)
+            today_summary = data_manager.get_today_summary(selected_partner_id)
+            hourly_trend = data_manager.get_hourly_trend(days_range, selected_partner_id)
+            sub_id_performance = data_manager.get_partner_performance(days_range, selected_partner_id)
+
             
             # 创建PandasAI智能数据框
             if PANDASAI_AVAILABLE and not comprehensive_data.empty:
                 pandasai_manager.create_smart_dataframe(comprehensive_data, "main")
                 pandasai_manager.create_smart_dataframe(today_summary, "today")
                 pandasai_manager.create_smart_dataframe(sub_id_performance, "sub_ids")
-                pandasai_manager.create_smart_dataframe(region_analysis, "regions")
+
             
         except Exception as e:
             st.error(f"❌ 数据加载失败: {str(e)}")
             return
+    
+    # 显示当前选中的Partner
+    if selected_partner == "all":
+        st.info("📊 当前显示：**所有Partners**的数据")
+    else:
+        partner_name = partners[selected_partner]['name']
+        st.info(f"📊 当前显示：**{partner_name}**的数据")
     
     # 自然语言查询区域（置顶）
     st.subheader("🤖 智能查询助手")
@@ -762,9 +846,8 @@ def main():
                 query_button = True
         
         with col3:
-            if st.button("🌍 转化最多地区"):
-                query_input = "哪个地区转化数量最多？"
-                query_button = True
+            # 移除转化最多地区按钮
+            pass
         
         with col4:
             if st.button("📈 小时趋势分析"):
@@ -803,7 +886,7 @@ def main():
         st.write("- 今天哪个offer表现最好？")
         st.write("- 最近7天的转化趋势如何？")
         st.write("- 哪个Sub ID收入最高？")
-        st.write("- 哪个地区转化数量最多？")
+
         st.write("- 工作日和周末的转化对比如何？")
     
     # 关键指标展示
@@ -828,7 +911,7 @@ def main():
             st.metric("🎪 活跃Offer", f"{unique_offers}")
     
     # 创建标签页
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Offer分析", "📈 趋势图表", "🤝 Sub ID分析", "🌍 地区分析"])
+    tab1, tab2, tab3 = st.tabs(["📊 Offer分析", "📈 趋势图表", "🤝 Sub ID分析"])
     
     with tab1:
         st.subheader("🎯 Offer表现分析")
@@ -865,18 +948,7 @@ def main():
         else:
             st.info("📝 暂无Sub ID数据")
     
-    with tab4:
-        st.subheader("🌍 地区分析")
-        if not region_analysis.empty:
-            chart_json = ChartGenerator.create_country_pie_chart(region_analysis)
-            if chart_json:
-                st.plotly_chart(chart_json, use_container_width=True)
-            
-            # 地区数据表格
-            st.subheader("🗺️ 地区详情")
-            st.dataframe(region_analysis, use_container_width=True)
-        else:
-            st.info("📝 暂无地区数据")
+
 
 if __name__ == "__main__":
     # 运行Streamlit应用

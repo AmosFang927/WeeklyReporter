@@ -110,7 +110,7 @@ async def init_database(db: AsyncSession = Depends(get_db)):
                 database_name, parameter_mapping, is_active
             ) VALUES (
                 'involve_asia', 'InvolveAsia', '/involve/event',
-                'https://bytec-public-postback-crwdeesavq-as.a.run.app/involve/event',
+                'https://bytec-public-postback-472712465571.asia-southeast1.run.app/involve/event',
                 'bytec-public-postback', 'asia-southeast1', 'solar-idea-463423-h8',
                 'involve_asia_db', 
                 '{"sub_id": "aff_sub", "media_id": "aff_sub2", "click_id": "aff_sub3", "usd_sale_amount": "usd_sale_amount", "usd_payout": "usd_payout", "offer_name": "offer_name", "conversion_id": "conversion_id", "conversion_datetime": "datetime_conversion"}'::jsonb,
@@ -131,7 +131,7 @@ async def init_database(db: AsyncSession = Depends(get_db)):
                 database_name, parameter_mapping, is_active
             ) VALUES (
                 'digenesia', 'Digenesia', '/digenesia/event',
-                'https://bytec-public-postback-crwdeesavq-as.a.run.app/partner/digenesia/event',
+                'https://bytec-public-postback-472712465571.asia-southeast1.run.app/partner/digenesia/event',
                 'bytec-public-postback', 'asia-southeast1', 'solar-idea-463423-h8',
                 'digenesia_db',
                 '{"aff_sub": "aff_sub", "aff_sub2": "aff_sub2", "aff_sub3": "aff_sub3", "usd_sale_amount": "usd_sale_amount", "usd_payout": "usd_payout", "offer_name": "offer_name", "conversion_id": "conversion_id", "conversion_datetime": "conversion_datetime"}'::jsonb,
