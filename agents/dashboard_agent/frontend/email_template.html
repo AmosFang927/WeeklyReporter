@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversion Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            border-bottom: 2px solid #1f4e79;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .summary-box {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-left: 4px solid #007bff;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        
+        .section-title {
+            color: #1f4e79;
+            border-bottom: 1px solid #e9ecef;
+            padding-bottom: 5px;
+            margin-top: 25px;
+        }
+        
+        .file-list {
+            background-color: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px 0;
+        }
+        
+        .file-list li {
+            padding: 5px 15px;
+            border-bottom: 1px solid #f1f3f4;
+        }
+        
+        .file-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .feishu-links {
+            background-color: #e8f4fd;
+            border: 1px solid #bee5eb;
+            border-radius: 5px;
+            padding: 15px;
+        }
+        
+        .feishu-links a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .feishu-links a:hover {
+            text-decoration: underline;
+        }
+        
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
+            color: #666;
+        }
+        
+        .highlight {
+            background-color: #fff3cd;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        
+        .amount {
+            color: #28a745;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <p>Hi {{partner_name}} Teams,</p>
+        <p>{{main_file}} 如附件，请查收。</p>
+    </div>
+    
+    <h3 class="section-title">📊 {{partner_name}} 报告摘要</h3>
+    <div class="summary-box">
+        <ul style="list-style: none; padding: 0; margin: 0;">
+            <li><strong>Partner:</strong> <span class="highlight">{{partner_name}}</span></li>
+            <li><strong>Date Range:</strong> {{start_date}} 至 {{end_date}}</li>
+            <li><strong>Total Conversion:</strong> <strong>{{total_records}}</strong> 条</li>
+            <li><strong>Total Sales Amount:</strong> <span class="amount">{{total_amount}}</span></li>
+            <li><strong>Sources:</strong> {{sources_list}}</li>
+        </ul>
+        <div style="margin-top: 15px;">
+            {{sources_statistics}}
+        </div>
+    </div>
+    
+    <h3 class="section-title">📁 附件文件</h3>
+    <ul class="file-list">
+        <li><strong>{{main_file}}</strong></li>
+    </ul>
+    
+    {{feishu_section}}
+    
+    <div class="footer">
+        <p><strong>生成时间:</strong> {{completion_time}}</p>
+        <p>
+            Best regards,<br>
+            <strong>AutoReporter Agent</strong>
+        </p>
+    </div>
+</body>
+</html> 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-WeeklyReporter 全局配置文件
+ByteC-Network-Agent 全局配置文件
 包含API配置、文件配置、日志配置等
 """
 
-# WeeklyReporter 配置文件
+# ByteC-Network-Agent 配置文件
 # 版本: 2.0.1 - 修复邮件总金额计算bug (2025-06-20)
 # 本次更新修复了Partner邮件中总金额只计算第一个sheet的问题
 # 现在正确计算所有sheets的金额总和
@@ -74,7 +74,7 @@ PARTNER_SOURCES_MAPPING = {
         #"email_recipients": ["amosfang927@gmail.com"]  # 收件人列表
         "email_recipients": ["max@rampupads.com", "offer@rampupads.com", "bill.zhang@rampupads.com"]
     },
-    "YueMeng": {
+    "DeepLeaper": {
         "sources": ["OPPO", "VIVO", "OEM2", "OEM3"],  # 包含OPPO、VIVO、OEM2、OEM3
         "pattern": r"^(OPPO|VIVO|OEM2|OEM3).*",  # 匹配以OPPO、VIVO、OEM2、OEM3开头的所有Sources
         "email_enabled": True,  # 邮件发送开关
@@ -147,13 +147,13 @@ PUB_COMMISSION_RATE_MAPPING = {
     ("RAMPUP", "Shopee ID (Media Buyers) - CPS"): 2.5,  # 您指定的2.5%
     ("RAMPUP", "Shopee PH - CPS"): 2.7,  # 您指定的2.7%
     
-    # YueMeng Partner配置
-    ("YueMeng", "TikTok Shop ID - CPS"): 1.0,  # 1.0表示1%
-    ("YueMeng", "Shopee TH - CPS"): 2.0,  # 您示例中的2%
-    ("YueMeng", "Shopee MY - CPS"): 2.0,  # 您示例中的2%
-    ("YueMeng", "Shopee PH - CPS"): 2.5,  # 您示例中的2.5%
-    ("YueMeng", "Shopee ID (Media Buyers) - CPS"): 1.5,  # 您示例中的3%
-    ("YueMeng", "Shopee VN - CPS"): 3.0,  # 您示例中的3%
+    # DeepLeaper Partner配置
+    ("DeepLeaper", "TikTok Shop ID - CPS"): 1.0,  # 1.0表示1%
+    ("DeepLeaper", "Shopee TH - CPS"): 2.0,  # 您示例中的2%
+    ("DeepLeaper", "Shopee MY - CPS"): 2.0,  # 您示例中的2%
+    ("DeepLeaper", "Shopee PH - CPS"): 2.5,  # 您示例中的2.5%
+    ("DeepLeaper", "Shopee ID (Media Buyers) - CPS"): 1.5,  # 您示例中的3%
+    ("DeepLeaper", "Shopee VN - CPS"): 3.0,  # 您示例中的3%
     
     # ByteC Partner配置
     ("ByteC", "Shopee ID (Media Buyers) - CPS"): 1.0,  # 默认1%
@@ -174,22 +174,22 @@ DEFAULT_PUB_COMMISSION_RATE = 1.0  # 1%
 
 # API Secret 到 Platform 名称的映射
 API_SECRET_TO_PLATFORM = {
-    "boiTXnRgB2B3N7rCictjjti1ufNIzKksSURJHwqtC50=": "LisaidByteC",
-    "PPoTSymFFxjJu0CXhCrOD0bCpReCjcZNOyEr0BveZm8=": "LisaidWebeye", 
-    "Q524XgLnQmrIBiOK8ZD2qmgmQDPbuTqx13tBDWd6BT0=": "IAByteC"
+    # "boiTXnRgB2B3N7rCictjjti1ufNIzKksSURJHwqtC50=": "LisaidByteC",  # 暂时跳过 LisaidByteC
+    # "PPoTSymFFxjJu0CXhCrOD0bCpReCjcZNOyEr0BveZm8=": "LisaidWebeye",  # 暂时跳过 LisaidWebeye
+    "Q524XgLnQmrIBiOK8ZD2qmgmQDPbuTqx13tBDWd6BT0=": "involve_asia"  # IAByteC 映射到 involve_asia 平台
 }
 
 # API 到公司的映射关系
 API_TO_COMPANY_MAPPING = {
-    "LisaidByteC": "ByteC",
-    "IAByteC": "ByteC", 
-    "LisaidWebeye": "Webeye"
+    # "LisaidByteC": "ByteC",  # 暂时跳过 LisaidByteC
+    "involve_asia": "ByteC",  # IAByteC 映射到 involve_asia 平台
+    # "LisaidWebeye": "Webeye"  # 暂时跳过 LisaidWebeye
 }
 
 # 公司对应的API列表
 COMPANY_APIS = {
-    "ByteC": ["LisaidByteC", "IAByteC"],
-    "Webeye": ["LisaidWebeye"]
+    "ByteC": ["involve_asia"],  # IAByteC 映射到 involve_asia 平台
+    # "Webeye": ["LisaidWebeye"]  # 暂时跳过 Webeye
 }
 
 # =============================================================================
@@ -198,15 +198,15 @@ COMPANY_APIS = {
 # Partner 到 API 平台映射配置
 # 支持单个API或多个API的配置
 PARTNER_API_MAPPING = {
-    "RAMPUP": ["LisaidByteC"],                    # RAMPUP 使用 LisaidByteC
-    "YueMeng": ["IAByteC", "LisaidByteC"],        # YueMeng 使用两个API获取完整数据  
-    "ByteC": ["LisaidByteC", "IAByteC"],         # ByteC 使用两个API获取完整数据
-    "TestPartner": ["LisaidByteC"],               # TestPartner 使用 LisaidByteC
-    "MKK": ["LisaidByteC"]                       # MKK 使用 LisaidByteC
+    "RAMPUP": ["involve_asia"],                  # RAMPUP 使用 involve_asia 平台
+    "DeepLeaper": ["involve_asia"],              # DeepLeaper 使用 involve_asia 平台
+    "ByteC": ["involve_asia"],                   # ByteC 使用 involve_asia 平台
+    "TestPartner": ["involve_asia"],             # TestPartner 使用 involve_asia 平台
+    "MKK": ["involve_asia"]                      # MKK 使用 involve_asia 平台
 }
 
 # 默认 API 平台（当 Partner 不在映射中时使用）
-DEFAULT_API_PLATFORM = "LisaidByteC"
+DEFAULT_API_PLATFORM = "involve_asia"
 
 # 飞书上传配置
 FEISHU_UPLOAD_URL = "https://open.feishu.cn/open-apis/drive/v1/files/upload_all"

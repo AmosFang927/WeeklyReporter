@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ByteC Conversion Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            border-bottom: 2px solid #1f4e79;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .summary-section {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-left: 4px solid #007bff;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        
+        .section-title {
+            color: #1f4e79;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 8px;
+            margin-top: 30px;
+            margin-bottom: 20px;
+            font-size: 1.2em;
+        }
+        
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            background-color: #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .data-table th {
+            background-color: #1f4e79;
+            color: white;
+            padding: 12px 8px;
+            text-align: left;
+            font-weight: bold;
+            border: 1px solid #dee2e6;
+        }
+        
+        .data-table td {
+            padding: 10px 8px;
+            border: 1px solid #dee2e6;
+            text-align: left;
+        }
+        
+        .data-table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        .data-table tr:hover {
+            background-color: #e8f4fd;
+        }
+        
+        .amount {
+            color: #28a745;
+            font-weight: bold;
+        }
+        
+        .negative-roi {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        
+        .file-list {
+            background-color: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px 0;
+        }
+        
+        .file-list li {
+            padding: 5px 15px;
+            border-bottom: 1px solid #f1f3f4;
+        }
+        
+        .file-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .feishu-links {
+            background-color: #e8f4fd;
+            border: 1px solid #bee5eb;
+            border-radius: 5px;
+            padding: 15px;
+        }
+        
+        .feishu-links a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .feishu-links a:hover {
+            text-decoration: underline;
+        }
+        
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e9ecef;
+            color: #666;
+        }
+        
+        .highlight {
+            background-color: #fff3cd;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        
+        .company-total {
+            background-color: #e8f5e8;
+            font-weight: bold;
+        }
+        
+        .dimension-header {
+            background-color: #f0f8ff;
+            padding: 10px;
+            margin: 15px 0 5px 0;
+            border-left: 4px solid #007bff;
+            font-weight: bold;
+            color: #1f4e79;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <p>Hi ByteC Teams,</p>
+        <p>{{main_file}} 如附件，请查收。</p>
+    </div>
+    
+    <!-- ByteC Company Level Summary -->
+    <h3 class="section-title">🏢 ByteC Company Level Summary</h3>
+    <div class="summary-section">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Company</th>
+                    <th>Date Range</th>
+                    <th>Total Conversion</th>
+                    <th>Total Sales Amount</th>
+                    <th>Total Estimated Earning</th>
+                    <th>Total Adv Commission</th>
+                    <th>Total Pub Commission</th>
+                    <th>Total ByteC Commission</th>
+                    <th>ByteC ROI</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr class="company-total">
+                    <td><span class="highlight">ByteC</span></td>
+                    <td>{{start_date}} 至 {{end_date}}</td>
+                    <td><strong>{{company_total_conversion}}</strong></td>
+                    <td><span class="amount">{{company_total_sales}}</span></td>
+                    <td><span class="amount">{{company_total_earning}}</span></td>
+                    <td><span class="amount">{{company_total_adv_commission}}</span></td>
+                    <td><span class="amount">{{company_total_pub_commission}}</span></td>
+                    <td><span class="amount">{{company_total_bytec_commission}}</span></td>
+                    <td class="{{company_roi_class}}">{{company_bytec_roi}}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Partner + Source Level Summary -->
+    <h3 class="section-title">👥 Partner + Source Level Summary</h3>
+    <div class="dimension-header">按优先级排序 - Partner + Source 维度统计</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Partner + Source</th>
+                <th>Conversion</th>
+                <th>Sales Amount</th>
+                <th>Estimated Earning</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{partner_source_summary_rows}}
+        </tbody>
+    </table>
+    
+    <!-- Offer Level Summary -->
+    <h3 class="section-title">🎯 Offer Level Summary</h3>
+    <div class="dimension-header">按优先级排序 - Offer 维度统计</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Offer Name</th>
+                <th>Conversion</th>
+                <th>Sales Amount</th>
+                <th>Estimated Earning</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{offer_summary_rows}}
+        </tbody>
+    </table>
+    
+    <h3 class="section-title">📁 附件文件</h3>
+    <ul class="file-list">
+        <li><strong>{{main_file}}</strong></li>
+    </ul>
+    
+    {{feishu_section}}
+    
+    <div class="footer">
+        <p><strong>生成时间:</strong> {{completion_time}}</p>
+        <p>
+            Best regards,<br>
+            <strong>AutoReporter Agent</strong>
+        </p>
+    </div>
+</body>
+</html> 

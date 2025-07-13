@@ -171,7 +171,7 @@ class ByteCReportGenerator:
             
             summary_list.append({
                 'Offer Name': offer_name,
-                'Sales Amount': sales_amount,
+                'Sale Amount': sales_amount,
                 'Estimated Earning': estimated_earning, 
                 'Partner': actual_partner,
                 'Platform': platform_name,
@@ -242,14 +242,14 @@ class ByteCReportGenerator:
             self._apply_currency_formatting(ws, summary_data)
         else:
             # 如果没有数据，写入标题行
-            headers = ['Offer Name', 'Sales Amount', 'Estimated Earning', 'Partner', 'Platform', 'Source', 'Conversions', 'Avg. Commission Rate', 'Adv Commission Rate', 'Adv Commission', 'Pub Commission Rate', 'Pub Commission', 'ByteC Commission', 'ByteC ROI']
+            headers = ['Offer Name', 'Sale Amount', 'Estimated Earning', 'Partner', 'Platform', 'Source', 'Conversions', 'Avg. Commission Rate', 'Adv Commission Rate', 'Adv Commission', 'Pub Commission Rate', 'Pub Commission', 'ByteC Commission', 'ByteC ROI']
             ws.append(headers)
         
         # 保存文件
         wb.save(output_path)
         
         # 输出统计信息
-        total_sales = summary_data['Sales Amount'].sum() if len(summary_data) > 0 else 0
+        total_sales = summary_data['Sale Amount'].sum() if len(summary_data) > 0 else 0
         total_earning = summary_data['Estimated Earning'].sum() if len(summary_data) > 0 else 0
         total_conversions = summary_data['Conversions'].sum() if len(summary_data) > 0 else 0
         
@@ -311,7 +311,7 @@ class ByteCReportGenerator:
             return
         
         # 计算汇总数据
-        total_sales = summary_data['Sales Amount'].sum()
+        total_sales = summary_data['Sale Amount'].sum()
         total_earning = summary_data['Estimated Earning'].sum()
         total_conversions = summary_data['Conversions'].sum()
         
@@ -338,7 +338,7 @@ class ByteCReportGenerator:
         # 添加汇总行
         total_row = [
             'TOTAL',  # Offer Name
-            total_sales,  # Sales Amount
+                            total_sales,  # Sale Amount
             total_earning,  # Estimated Earning
             '',  # Partner (留空)
             '',  # Platform (留空)
@@ -366,7 +366,7 @@ class ByteCReportGenerator:
         
         # 基本统计信息
         total_offers = len(summary_data)
-        total_sales = summary_data['Sales Amount'].sum()
+        total_sales = summary_data['Sale Amount'].sum()
         total_earning = summary_data['Estimated Earning'].sum()
         total_conversions = summary_data['Conversions'].sum()
         
@@ -411,7 +411,7 @@ class ByteCReportGenerator:
         
         for i, (_, row) in enumerate(top_offers.iterrows(), 1):
             summary_lines.append(
-                f"  {i}. {row['Offer Name']}: ${row['Sales Amount']:,.2f} "
+                f"  {i}. {row['Offer Name']}: ${row['Sale Amount']:,.2f} "
                 f"(收入: ${row['Estimated Earning']:,.2f}, 转换: {row['Conversions']})"
             )
         
@@ -463,7 +463,7 @@ class ByteCReportGenerator:
         for i, column_name in enumerate(columns):
             excel_col_index = i + 1  # Excel 列索引从1开始
             
-            if column_name in ['Sales Amount', 'Estimated Earning', 'Adv Commission', 'Pub Commission', 'ByteC Commission']:
+            if column_name in ['Sale Amount', 'Estimated Earning', 'Adv Commission', 'Pub Commission', 'ByteC Commission']:
                 currency_columns.append(excel_col_index)
             elif column_name in ['Avg. Commission Rate', 'Adv Commission Rate', 'Pub Commission Rate', 'ByteC ROI']:
                 percentage_columns.append(excel_col_index)

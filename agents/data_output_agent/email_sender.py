@@ -46,7 +46,7 @@ class EmailSender:
         self.retry_delay = getattr(config, 'EMAIL_RETRY_DELAY', 5)
         self.retry_backoff = getattr(config, 'EMAIL_RETRY_BACKOFF', 2)
     
-    def send_partner_reports(self, partner_summary, feishu_upload_result=None, report_date=None, start_date=None, self_email=False):
+    def send_partner_reports(self, partner_summary, feishu_upload_result=None, report_date=None, start_date=None):
         """
         按Partner分别发送转换报告邮件
         
@@ -64,7 +64,6 @@ class EmailSender:
             feishu_upload_result: 飞书上传结果
             report_date: 报告日期（结束日期，用于邮件标题和内容）
             start_date: 开始日期（用于邮件中的日期范围显示）
-            self_email: 是否发送邮件到自己（测试用）
         
         Returns:
             dict: 发送结果汇总
@@ -110,11 +109,7 @@ class EmailSender:
                     continue
                 
                 # 获取该Partner的收件人
-                if self_email:
-                    # 如果是自发邮件模式，发送到自己的邮箱
-                    receivers = [self.sender]
-                else:
-                    receivers = self.partner_email_mapping.get(partner_name, self.default_receivers)
+                receivers = self.partner_email_mapping.get(partner_name, self.default_receivers)
                 
                 # 准备该Partner的邮件数据
                 email_data = self._prepare_partner_email_data(partner_name, partner_data, report_date, start_date)
@@ -239,13 +234,8 @@ class EmailSender:
         """准备Partner邮件数据"""
         if report_date is None:
             report_date = datetime.now().strftime("%Y-%m-%d")
-        elif isinstance(report_date, datetime):
-            report_date = report_date.strftime("%Y-%m-%d")
-        
         if start_date is None:
             start_date = report_date
-        elif isinstance(start_date, datetime):
-            start_date = start_date.strftime("%Y-%m-%d")
         
         file_path = partner_data.get('file_path')
         
@@ -254,7 +244,6 @@ class EmailSender:
         
         # 计算Sources统计信息
         sources_statistics = self._calculate_sources_statistics_from_excel(file_path)
-        print_step("Sources统计", f"✅ 计算完成，获得 {len(sources_statistics)} 个Sources统计")
         
         return {
             'partner_name': partner_name,
@@ -293,7 +282,7 @@ class EmailSender:
                     
                     # 支持多种可能的销售金额列名
                     sales_amount_col = None
-                    possible_col_names = ['sale_amount', 'Sale Amount', 'sales_amount', 'SALE_AMOUNT', 'Sale Amount (USD)']
+                    possible_col_names = ['sale_amount', 'Sale Amount', 'sales_amount', 'SALE_AMOUNT']
                     
                     for col_name in possible_col_names:
                         if col_name in df.columns:
@@ -301,21 +290,7 @@ class EmailSender:
                             break
                     
                     if sales_amount_col and len(df) > 0:
-                        # 处理格式化的美元金额字符串（如"$123.45"）
-                        def parse_currency(value):
-                            """解析货币字符串，返回数值"""
-                            if pd.isna(value):
-                                return 0.0
-                            if isinstance(value, str):
-                                # 移除美元符号、逗号和其他非数字字符
-                                cleaned_value = value.replace('$', '').replace(',', '').strip()
-                                try:
-                                    return float(cleaned_value)
-                                except ValueError:
-                                    return 0.0
-                            return float(value) if value else 0.0
-                        
-                        sheet_total = df[sales_amount_col].apply(parse_currency).sum()
+                        sheet_total = df[sales_amount_col].sum()
                         total_amount += sheet_total
                         sheet_details.append(f"  - {sheet_name}: ${sheet_total:.2f}")
                         print_step("金额计算", f"📋 Sheet '{sheet_name}': ${sheet_total:.2f} ({len(df)} 条记录，使用列'{sales_amount_col}')")
@@ -354,10 +329,6 @@ class EmailSender:
             for sheet_name in wb.sheetnames:
                 ws = wb[sheet_name]
                 
-                # 跳过Summary工作表，因为它不包含实际的转化数据
-                if sheet_name.lower() == 'summary':
-                    continue
-                
                 # 跳过第一行标题，计算记录数
                 row_count = ws.max_row - 1 if ws.max_row > 1 else 0
                 
@@ -366,7 +337,7 @@ class EmailSender:
                 
                 # 支持多种可能的销售金额列名
                 sales_amount_col = None
-                possible_col_names = ['sale_amount', 'Sale Amount', 'sales_amount', 'SALE_AMOUNT', 'Sale Amount (USD)']
+                possible_col_names = ['sale_amount', 'Sale Amount', 'sales_amount', 'SALE_AMOUNT']
                 
                 for col_name in possible_col_names:
                     if col_name in df.columns:
@@ -374,25 +345,15 @@ class EmailSender:
                         break
                 
                 if sales_amount_col and len(df) > 0:
-                    # 处理混合类型的数据，确保所有值都是数字
-                    try:
-                        # 先将所有值转换为数字，处理可能的字符串格式
-                        numeric_values = pd.to_numeric(df[sales_amount_col], errors='coerce')
-                        # 替换NaN为0
-                        numeric_values = numeric_values.fillna(0)
-                        # 求和
-                        sales_amount = float(numeric_values.sum())
-                        formatted_amount = f"${sales_amount:,.2f}"
-                    except Exception as e:
-                        print_step("Sources统计", f"⚠️ 计算销售金额失败: {e}")
-                        formatted_amount = '$0.00'
+                    sales_amount = df[sales_amount_col].sum()
+                    formatted_amount = f"${sales_amount:,.2f}"
                 else:
                     formatted_amount = '$0.00'
                 
                 sources_stats.append({
-                    'source_name': str(sheet_name),  # 确保是字符串
-                    'records': int(row_count),       # 确保是整数
-                    'sales_amount': str(formatted_amount)  # 确保是字符串
+                    'source_name': sheet_name,
+                    'records': row_count,
+                    'sales_amount': formatted_amount
                 })
             
             wb.close()
@@ -531,16 +492,14 @@ class EmailSender:
                     feishu_section = feishu_template.replace('{{feishu_links}}', feishu_links)
         
         # 生成Sources统计HTML和Sources列表
-        print_step("Sources统计", f"📊 邮件生成时获得 {len(sources_statistics)} 个Sources统计")
         sources_statistics_html = self._generate_sources_statistics_html(sources_statistics)
         sources_list = self._generate_sources_list(sources_statistics)
-        print_step("Sources列表", f"📋 生成的Sources列表: {sources_list}")
         
         # 替换模板中的占位符
         body = template.replace('{{date}}', report_date)
         body = body.replace('{{partner_name}}', partner_name)  # 注意：这里改为partner_name
-        body = body.replace('{{start_date}}', str(start_date))
-        body = body.replace('{{end_date}}', str(end_date))
+        body = body.replace('{{start_date}}', start_date)
+        body = body.replace('{{end_date}}', end_date)
         body = body.replace('{{total_records}}', f"{total_records:,}")
         body = body.replace('{{total_amount}}', total_amount)
         body = body.replace('{{main_file}}', main_file)
@@ -563,12 +522,6 @@ class EmailSender:
             records = stat.get('records', 0)
             sales_amount = stat.get('sales_amount', '$0.00')
             
-            # 確保records是整數類型
-            try:
-                records = int(records) if records is not None else 0
-            except (ValueError, TypeError):
-                records = 0
-            
             html_parts.append(f"<li style='margin: 8px 0; padding: 8px; background-color: #ffffff; border: 1px solid #e9ecef; border-radius: 4px;'>")
             html_parts.append(f"<strong>- {source_name}:</strong> ")
             html_parts.append(f"Total Conversion: <strong>{records:,}</strong> 条, ")
@@ -585,9 +538,6 @@ class EmailSender:
             return "无"
         
         source_names = [stat.get('source_name', 'Unknown') for stat in sources_statistics]
-        if not source_names:
-            return "无"
-        
         return ", ".join(source_names)
     
     def _generate_fallback_email_body(self, partner_name, email_data, feishu_info):
@@ -865,8 +815,8 @@ class EmailSender:
                     feishu_section = feishu_template.replace('{{feishu_links}}', feishu_links)
         
         # 替换模板中的占位符
-        body = template.replace('{{start_date}}', str(start_date))
-        body = body.replace('{{end_date}}', str(end_date))
+        body = template.replace('{{start_date}}', start_date)
+        body = body.replace('{{end_date}}', end_date)
         body = body.replace('{{main_file}}', main_file)
         body = body.replace('{{completion_time}}', completion_time)
         body = body.replace('{{feishu_section}}', feishu_section)
@@ -947,28 +897,14 @@ class EmailSender:
             
             # 金额计算 - 支持多种列名格式
             sales_amount_column = None
-            for col in ['sale_amount', 'Sale Amount', 'sales_amount', 'SALE_AMOUNT', 'Sale Amount (USD)']:
+            for col in ['sale_amount', 'Sale Amount', 'sales_amount']:
                 if col in df.columns:
                     sales_amount_column = col
                     break
             
             total_sales = 0.0
             if sales_amount_column:
-                # 处理格式化的美元金额字符串（如"$123.45"）
-                def parse_currency(value):
-                    """解析货币字符串，返回数值"""
-                    if pd.isna(value):
-                        return 0.0
-                    if isinstance(value, str):
-                        # 移除美元符号、逗号和其他非数字字符
-                        cleaned_value = value.replace('$', '').replace(',', '').strip()
-                        try:
-                            return float(cleaned_value)
-                        except ValueError:
-                            return 0.0
-                    return float(value) if value else 0.0
-                
-                total_sales = df[sales_amount_column].apply(parse_currency).sum()
+                total_sales = df[sales_amount_column].sum()
             
             # Estimated Earning计算
             earning_column = None
@@ -1112,7 +1048,7 @@ class EmailSender:
             sales_amount_column = None
             earning_column = None
             
-            for col in ['sale_amount', 'Sale Amount', 'sales_amount', 'SALE_AMOUNT', 'Sale Amount (USD)']:
+            for col in ['sale_amount', 'Sale Amount', 'sales_amount']:
                 if col in df_clean.columns:
                     sales_amount_column = col
                     break
@@ -1123,26 +1059,6 @@ class EmailSender:
                     break
             
             print_step("Partner+Source汇总", f"🔍 数据列: Conversion='{conversion_column}', Sales='{sales_amount_column}', Earning='{earning_column}'")
-            
-            # 处理格式化的金额字符串
-            def parse_currency(value):
-                """解析货币字符串，返回数值"""
-                if pd.isna(value):
-                    return 0.0
-                if isinstance(value, str):
-                    # 移除美元符号、逗号和其他非数字字符
-                    cleaned_value = value.replace('$', '').replace(',', '').strip()
-                    try:
-                        return float(cleaned_value)
-                    except ValueError:
-                        return 0.0
-                return float(value) if value else 0.0
-            
-            # 转换格式化的金额字符串为数值
-            if sales_amount_column:
-                df_clean[sales_amount_column] = df_clean[sales_amount_column].apply(parse_currency)
-            if earning_column:
-                df_clean[earning_column] = df_clean[earning_column].apply(parse_currency)
             
             # 按Partner + Source分组统计
             agg_dict = {}
@@ -1253,7 +1169,7 @@ class EmailSender:
             sales_amount_column = None
             earning_column = None
             
-            for col in ['sale_amount', 'Sale Amount', 'sales_amount', 'SALE_AMOUNT', 'Sale Amount (USD)']:
+            for col in ['sale_amount', 'Sale Amount', 'sales_amount']:
                 if col in df.columns:
                     sales_amount_column = col
                     break
@@ -1265,26 +1181,6 @@ class EmailSender:
             
             # 过滤掉TOTAL行（这是Excel中的汇总行，不是真实的Offer）
             df_filtered = df[df[offer_column] != 'TOTAL'].copy()
-            
-            # 处理格式化的金额字符串
-            def parse_currency(value):
-                """解析货币字符串，返回数值"""
-                if pd.isna(value):
-                    return 0.0
-                if isinstance(value, str):
-                    # 移除美元符号、逗号和其他非数字字符
-                    cleaned_value = value.replace('$', '').replace(',', '').strip()
-                    try:
-                        return float(cleaned_value)
-                    except ValueError:
-                        return 0.0
-                return float(value) if value else 0.0
-            
-            # 转换格式化的金额字符串为数值
-            if sales_amount_column:
-                df_filtered[sales_amount_column] = df_filtered[sales_amount_column].apply(parse_currency)
-            if earning_column:
-                df_filtered[earning_column] = df_filtered[earning_column].apply(parse_currency)
             
             # 按Offer分组统计
             agg_dict = {}
